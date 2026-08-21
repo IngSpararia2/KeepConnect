@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
-  static const navy = Color(0xFF17324D);
-  static const teal = Color(0xFF007C83);
+  static const primary = Color(0xFF185FA5);
   static const amber = Color(0xFFF2A900);
   static const danger = Color(0xFFB42318);
   static const success = Color(0xFF247A52);
@@ -15,13 +14,13 @@ abstract final class AppTheme {
 
   static ThemeData _build(Brightness brightness) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.teal,
+      seedColor: AppColors.primary,
       brightness: brightness,
       primary: brightness == Brightness.light
-          ? AppColors.teal
-          : const Color(0xFF67D4D5),
+          ? AppColors.primary
+          : const Color(0xFF8FC8FF),
       secondary: brightness == Brightness.light
-          ? AppColors.navy
+          ? const Color(0xFF244A6F)
           : const Color(0xFFA9C7E8),
       error: brightness == Brightness.light
           ? AppColors.danger
@@ -32,7 +31,7 @@ abstract final class AppTheme {
       brightness: brightness,
       colorScheme: scheme,
       scaffoldBackgroundColor: brightness == Brightness.light
-          ? const Color(0xFFF5F7F9)
+          ? const Color(0xFFF5F7FA)
           : const Color(0xFF0F171D),
     );
     return base.copyWith(
@@ -49,7 +48,7 @@ abstract final class AppTheme {
         color: scheme.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .65)),
+          side: const BorderSide(color: Color(0xFFE1E7EF)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(

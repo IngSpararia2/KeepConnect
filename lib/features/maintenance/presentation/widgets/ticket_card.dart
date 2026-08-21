@@ -51,21 +51,7 @@ class TicketCard extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  StatusBadge(ticket.status),
-                  if (ticket.productionStopped)
-                    _CriticalFact(
-                      icon: Icons.factory_outlined,
-                      text: 'PRODUCCIÓN DETENIDA',
-                      color: scheme.error,
-                    ),
-                  if (ticket.safetyRisk)
-                    _CriticalFact(
-                      icon: Icons.health_and_safety_outlined,
-                      text: 'RIESGO DE SEGURIDAD',
-                      color: scheme.error,
-                    ),
-                ],
+                children: [StatusBadge(ticket.status)],
               ),
               const SizedBox(height: 12),
               Row(
@@ -75,8 +61,8 @@ class TicketCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       [
-                        if (ticket.assetName?.isNotEmpty == true)
-                          ticket.assetName,
+                        if (ticket.equipment?.isNotEmpty == true)
+                          ticket.equipment,
                         if (ticket.location.isNotEmpty) ticket.location,
                       ].join(' · '),
                       maxLines: 1,
@@ -94,37 +80,6 @@ class TicketCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _CriticalFact extends StatelessWidget {
-  const _CriticalFact({
-    required this.icon,
-    required this.text,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            color: color,
-          ),
-        ),
-      ],
     );
   }
 }

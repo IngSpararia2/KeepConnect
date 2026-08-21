@@ -4,125 +4,78 @@ enum TicketPriority {
   high,
   critical;
 
-  static TicketPriority fromValue(Object? value) =>
-      TicketPriority.values.firstWhere(
-        (priority) => priority.name == value,
-        orElse: () => TicketPriority.medium,
-      );
-
+  static TicketPriority fromValue(Object? value) => TicketPriority.values
+      .firstWhere((item) => item.name == value, orElse: () => medium);
   String get label => switch (this) {
-    TicketPriority.low => 'Baja',
-    TicketPriority.medium => 'Media',
-    TicketPriority.high => 'Alta',
-    TicketPriority.critical => 'Crítica',
+    low => 'Baja',
+    medium => 'Media',
+    high => 'Alta',
+    critical => 'Crítica',
   };
-
-  int get rank => index;
 }
 
 enum TicketStatus {
   pending,
   acknowledged,
-  assigned,
   inProgress,
-  waitingParts,
-  waitingExternal,
-  paused,
-  resolved,
-  closed,
-  cancelled;
+  closed;
 
-  static TicketStatus fromValue(Object? value) =>
-      TicketStatus.values.firstWhere(
-        (status) => status.name == value,
-        orElse: () => TicketStatus.pending,
-      );
-
+  static TicketStatus fromValue(Object? value) => TicketStatus.values
+      .firstWhere((item) => item.name == value, orElse: () => pending);
   String get label => switch (this) {
-    TicketStatus.pending => 'Pendiente',
-    TicketStatus.acknowledged => 'Recibido',
-    TicketStatus.assigned => 'Asignado',
-    TicketStatus.inProgress => 'En proceso',
-    TicketStatus.waitingParts => 'En espera de repuesto',
-    TicketStatus.waitingExternal => 'En espera externa',
-    TicketStatus.paused => 'Pausado',
-    TicketStatus.resolved => 'Resuelto',
-    TicketStatus.closed => 'Cerrado',
-    TicketStatus.cancelled => 'Cancelado',
+    pending => 'Pendiente',
+    acknowledged => 'En revisión',
+    inProgress => 'En ejecución',
+    closed => 'Finalizado',
   };
-
-  bool get isOpen =>
-      this != TicketStatus.closed && this != TicketStatus.cancelled;
+  bool get isOpen => this != closed;
 }
 
-enum DynamicFieldType {
-  shortText,
-  longText,
-  number,
-  yesNo,
+enum QuestionType {
+  freeText,
   singleChoice,
-  multipleChoice,
-  checklist,
-  date,
-  photo;
+  multipleChoice;
 
-  static DynamicFieldType fromValue(Object? value) =>
-      DynamicFieldType.values.firstWhere(
-        (type) => type.name == value,
-        orElse: () => DynamicFieldType.shortText,
-      );
+  static QuestionType fromValue(Object? value) => QuestionType.values
+      .firstWhere((item) => item.name == value, orElse: () => freeText);
+  String get label => switch (this) {
+    freeText => 'Texto libre',
+    singleChoice => 'Selección única',
+    multipleChoice => 'Selección múltiple',
+  };
+}
+
+enum AppRole {
+  production,
+  maintenance;
+
+  String get label => this == production ? 'Planta' : 'Mantenimiento';
+  AppRole get other => this == production ? maintenance : production;
+}
+
+enum TicketUpdateType {
+  note,
+  instruction,
+  observation,
+  action;
+
+  String get label => switch (this) {
+    note => 'Nota adicional',
+    instruction => 'Nueva instrucción',
+    observation => 'Observación / novedad',
+    action => 'Acción realizada',
+  };
 }
 
 enum TicketEventType {
   created,
-  acknowledged,
-  assigned,
   statusChanged,
-  priorityChanged,
-  commentAdded,
-  attachmentAdded,
-  urgencyEscalated,
-  diagnosisAdded,
-  resolved,
-  closed,
-  reopened,
-  cancelled,
-  productionImpactChanged;
+  questionAdded,
+  answersSaved,
+  formCompleted,
+  updateAdded,
+  closed;
 
-  static TicketEventType fromValue(Object? value) => switch (value) {
-    'created' || 'ticketCreated' => TicketEventType.created,
-    'acknowledged' || 'ticketAcknowledged' => TicketEventType.acknowledged,
-    'assigned' || 'assignmentChanged' => TicketEventType.assigned,
-    'priorityChanged' => TicketEventType.priorityChanged,
-    'commentAdded' => TicketEventType.commentAdded,
-    'attachmentAdded' => TicketEventType.attachmentAdded,
-    'urgencyEscalated' ||
-    'manualEscalation' ||
-    'automaticEscalation' => TicketEventType.urgencyEscalated,
-    'diagnosisAdded' => TicketEventType.diagnosisAdded,
-    'resolved' || 'ticketResolved' => TicketEventType.resolved,
-    'closed' || 'ticketClosed' => TicketEventType.closed,
-    'reopened' || 'ticketReopened' => TicketEventType.reopened,
-    'cancelled' || 'ticketCancelled' => TicketEventType.cancelled,
-    'productionImpactChanged' => TicketEventType.productionImpactChanged,
-    _ => TicketEventType.statusChanged,
-  };
-
-  String get label => switch (this) {
-    TicketEventType.created => 'Solicitud creada',
-    TicketEventType.acknowledged => 'Solicitud recibida',
-    TicketEventType.assigned => 'Asignación actualizada',
-    TicketEventType.statusChanged => 'Estado actualizado',
-    TicketEventType.priorityChanged => 'Prioridad actualizada',
-    TicketEventType.commentAdded => 'Comentario añadido',
-    TicketEventType.attachmentAdded => 'Evidencia añadida',
-    TicketEventType.urgencyEscalated => 'Urgencia escalada',
-    TicketEventType.diagnosisAdded => 'Diagnóstico añadido',
-    TicketEventType.resolved => 'Solicitud resuelta',
-    TicketEventType.closed => 'Solicitud cerrada',
-    TicketEventType.reopened => 'Revisión solicitada',
-    TicketEventType.cancelled => 'Solicitud cancelada',
-    TicketEventType.productionImpactChanged =>
-      'Impacto en producción actualizado',
-  };
+  static TicketEventType fromValue(Object? value) => TicketEventType.values
+      .firstWhere((item) => item.name == value, orElse: () => statusChanged);
 }

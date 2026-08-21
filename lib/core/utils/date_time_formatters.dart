@@ -1,20 +1,14 @@
 import 'package:intl/intl.dart';
-import 'package:timezone/timezone.dart' as tz;
 
 abstract final class AppDateTime {
-  static tz.Location get _bogota => tz.getLocation('America/Bogota');
-
-  static DateTime inBogota(DateTime value) =>
-      tz.TZDateTime.from(value.toUtc(), _bogota);
-
   static String dateTime(DateTime? value) {
     if (value == null) return '—';
-    return DateFormat('dd/MM/yyyy · h:mm a', 'es_CO').format(inBogota(value));
+    return DateFormat('dd/MM/yyyy · h:mm a', 'es_CO').format(value.toLocal());
   }
 
   static String date(DateTime? value) {
     if (value == null) return '—';
-    return DateFormat('dd/MM/yyyy', 'es_CO').format(inBogota(value));
+    return DateFormat('dd/MM/yyyy', 'es_CO').format(value.toLocal());
   }
 
   static String elapsed(DateTime from, {DateTime? until}) {

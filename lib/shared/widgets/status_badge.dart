@@ -16,20 +16,8 @@ class StatusBadge extends StatelessWidget {
         AppColors.info,
         Icons.mark_email_read_outlined,
       ),
-      TicketStatus.assigned => (AppColors.info, Icons.assignment_ind_outlined),
-      TicketStatus.inProgress => (AppColors.teal, Icons.handyman_outlined),
-      TicketStatus.waitingParts => (
-        AppColors.amber,
-        Icons.inventory_2_outlined,
-      ),
-      TicketStatus.waitingExternal => (
-        AppColors.amber,
-        Icons.local_shipping_outlined,
-      ),
-      TicketStatus.paused => (Colors.deepOrange, Icons.pause_circle_outline),
-      TicketStatus.resolved => (AppColors.success, Icons.task_alt_outlined),
-      TicketStatus.closed => (Colors.blueGrey, Icons.lock_outline),
-      TicketStatus.cancelled => (AppColors.danger, Icons.cancel_outlined),
+      TicketStatus.inProgress => (AppColors.primary, Icons.handyman_outlined),
+      TicketStatus.closed => (AppColors.success, Icons.task_alt_outlined),
     };
     return Semantics(
       label: 'Estado ${status.label}',
