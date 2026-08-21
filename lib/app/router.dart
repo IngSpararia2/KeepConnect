@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../features/maintenance/presentation/area_selection_screen.dart';
 import '../features/maintenance/presentation/app_shell.dart';
 import '../features/maintenance/presentation/create_ticket_screen.dart';
+import '../features/maintenance/presentation/form_template_editor_screen.dart';
+import '../features/maintenance/presentation/form_template_list_screen.dart';
 import '../features/maintenance/presentation/login_screen.dart';
 import '../features/maintenance/presentation/ticket_detail_screen.dart';
 import 'app_providers.dart';
@@ -23,6 +27,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (location == '/splash') return null;
       if (!session.loggedIn) return location == '/login' ? null : '/login';
       if (location == '/login') return '/areas';
+      if (location.startsWith('/form-templates') && !session.isAdministrator) {
+        return '/areas';
+      }
       return null;
     },
     routes: [
@@ -30,6 +37,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/areas', builder: (_, _) => const AreaSelectionScreen()),
       GoRoute(path: '/home', builder: (_, _) => const AppShell()),
+      GoRoute(
+        path: '/form-templates',
+        builder: (_, _) => const FormTemplateListScreen(),
+      ),
+      GoRoute(
+        path: '/form-templates/new',
+        builder: (_, _) => const FormTemplateEditorScreen(),
+      ),
+      GoRoute(
+        path: '/form-templates/:templateId/edit',
+        builder: (_, state) => FormTemplateEditorScreen(
+          templateId: state.pathParameters['templateId']!,
+        ),
+      ),
       GoRoute(
         path: '/tickets/new',
         builder: (_, _) => const CreateTicketScreen(),
@@ -54,13 +75,21 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
+  Timer? _redirectTimer;
+
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 850), () {
+    _redirectTimer = Timer(const Duration(milliseconds: 850), () {
       if (!mounted) return;
       context.go(ref.read(sessionProvider).loggedIn ? '/areas' : '/login');
     });
+  }
+
+  @override
+  void dispose() {
+    _redirectTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -70,7 +99,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.precision_manufacturing_rounded, size: 76),
+            Image(
+              image: AssetImage('assets/branding/app_logo.png'),
+              key: Key('app-logo-splash'),
+              height: 132,
+              fit: BoxFit.contain,
+            ),
             SizedBox(height: 18),
             Text(
               'Gestión Interna',

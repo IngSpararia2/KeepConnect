@@ -6,19 +6,39 @@ import 'package:gestion_interna/core/database/database_service.dart';
 import 'package:gestion_interna/core/notifications/app_notification.dart';
 import 'package:gestion_interna/core/notifications/notification_service.dart';
 import 'package:gestion_interna/core/session/local_session.dart';
+import 'package:gestion_interna/features/maintenance/application/form_template_providers.dart';
 import 'package:gestion_interna/features/maintenance/application/maintenance_providers.dart';
+import 'package:gestion_interna/features/maintenance/data/sqlite_form_template_repository.dart';
 import 'package:gestion_interna/features/maintenance/data/sqlite_maintenance_repository.dart';
+import 'package:gestion_interna/features/maintenance/domain/form_template.dart';
 import 'package:gestion_interna/features/maintenance/domain/maintenance_ticket.dart';
+import 'package:gestion_interna/features/maintenance/domain/ticket_enums.dart';
+import 'package:gestion_interna/features/maintenance/domain/ticket_question.dart';
 import 'package:gestion_interna/features/maintenance/presentation/area_selection_screen.dart';
 import 'package:gestion_interna/features/maintenance/presentation/app_shell.dart';
 import 'package:gestion_interna/features/maintenance/presentation/create_ticket_screen.dart';
 import 'package:gestion_interna/features/maintenance/presentation/login_screen.dart';
 import 'package:gestion_interna/features/maintenance/presentation/ticket_detail_screen.dart';
+import 'package:gestion_interna/app/router.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 void main() {
   setUpAll(() => initializeDateFormatting('es_CO'));
+
+  testWidgets('splash carga el logo oficial', (tester) async {
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [localSessionProvider.overrideWithValue(session)],
+        child: const MaterialApp(home: SplashScreen()),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('app-logo-splash')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets('selector inicial muestra únicamente Planta', (tester) async {
     await tester.pumpWidget(
       const ProviderScope(child: MaterialApp(home: AreaSelectionScreen())),
@@ -29,8 +49,19 @@ void main() {
   });
 
   testWidgets('constructor añade una pregunta de texto libre', (tester) async {
+    final database = DatabaseService.inMemory();
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    await session.login(AccountRole.production);
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: CreateTicketScreen())),
+      ProviderScope(
+        overrides: [
+          localSessionProvider.overrideWithValue(session),
+          formTemplateRepositoryProvider.overrideWithValue(
+            SqliteFormTemplateRepository(database),
+          ),
+        ],
+        child: const MaterialApp(home: CreateTicketScreen()),
+      ),
     );
     await tester.tap(find.byKey(const Key('add-question')));
     await tester.pumpAndSettle();
@@ -42,6 +73,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('¿Qué encontró?'), findsOneWidget);
     expect(find.text('Texto libre'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    database.close();
   });
 
   testWidgets('login muestra los tres tipos de cuenta', (tester) async {
@@ -52,6 +85,8 @@ void main() {
         child: const MaterialApp(home: LoginScreen()),
       ),
     );
+    expect(find.byKey(const Key('app-logo-login')), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.tap(find.byKey(const Key('account-role')));
     await tester.pumpAndSettle();
     expect(find.text('Planta'), findsWidgets);
@@ -75,6 +110,9 @@ void main() {
           greaterThan(tester.getTopLeft(find.text('Críticos abiertos')).dy),
         );
       }
+      await tester.tap(find.byKey(const Key('session-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Formularios prediseñados'), findsNothing);
     });
   }
 
@@ -90,6 +128,97 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Vista Mantenimiento'), findsOneWidget);
     expect(find.byKey(const Key('create-ticket')), findsNothing);
+    await tester.tap(find.byKey(const Key('session-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Formularios prediseñados'), findsOneWidget);
+  });
+
+  testWidgets('seleccionar plantilla agrega copias editables y eliminables', (
+    tester,
+  ) async {
+    final database = DatabaseService.inMemory();
+    final repository = SqliteFormTemplateRepository(database);
+    final now = DateTime(2026, 8, 20);
+    await repository.createTemplate(
+      FormTemplate(
+        id: 'review',
+        name: 'Revisión de máquina',
+        questions: const [
+          TicketQuestion(
+            id: 'template-q1',
+            prompt: 'Diagnóstico inicial',
+            type: QuestionType.freeText,
+            required: true,
+            order: 0,
+          ),
+          TicketQuestion(
+            id: 'template-q2',
+            prompt: '¿Puede operar?',
+            type: QuestionType.singleChoice,
+            required: true,
+            order: 1,
+            options: ['Sí', 'No'],
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    await session.login(AccountRole.production);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          localSessionProvider.overrideWithValue(session),
+          formTemplateRepositoryProvider.overrideWithValue(repository),
+        ],
+        child: const MaterialApp(home: CreateTicketScreen()),
+      ),
+    );
+    final useTemplate = find.byKey(const Key('use-form-template'));
+    await tester.ensureVisible(useTemplate);
+    await tester.tap(useTemplate);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('select-template-review')));
+    await tester.pumpAndSettle();
+    expect(find.text('Diagnóstico inicial'), findsOneWidget);
+    expect(find.text('¿Puede operar?'), findsOneWidget);
+
+    final questionList = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView),
+    );
+    questionList.onReorderItem!(0, 2);
+    await tester.pump();
+    expect(
+      tester.getTopLeft(find.text('¿Puede operar?')).dy,
+      lessThan(tester.getTopLeft(find.text('Diagnóstico inicial')).dy),
+    );
+
+    await tester.tap(find.text('Diagnóstico inicial'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('question-prompt')),
+      'Diagnóstico modificado',
+    );
+    await tester.tap(find.byKey(const Key('save-question')));
+    await tester.pumpAndSettle();
+    expect(find.text('Diagnóstico modificado'), findsOneWidget);
+
+    final canOperateTile = find.ancestor(
+      of: find.text('¿Puede operar?'),
+      matching: find.byType(ListTile),
+    );
+    await tester.tap(
+      find.descendant(
+        of: canOperateTile,
+        matching: find.byIcon(Icons.delete_outline),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('¿Puede operar?'), findsNothing);
+    expect((await repository.getTemplate('review'))?.questions, hasLength(2));
+    await tester.pumpWidget(const SizedBox.shrink());
+    database.close();
   });
 
   testWidgets('crear ticket abre detalle y atrás vuelve al dashboard', (

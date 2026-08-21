@@ -9,6 +9,8 @@ import 'core/database/database_service.dart';
 import 'core/notifications/notification_service.dart';
 import 'core/session/local_session.dart';
 import 'features/maintenance/data/sqlite_maintenance_repository.dart';
+import 'features/maintenance/application/form_template_providers.dart';
+import 'features/maintenance/data/sqlite_form_template_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +25,7 @@ Future<void> main() async {
     database,
     notificationGateway: notifications,
   );
+  final formTemplateRepository = SqliteFormTemplateRepository(database);
 
   runApp(
     ProviderScope(
@@ -30,6 +33,9 @@ Future<void> main() async {
         localSessionProvider.overrideWithValue(session),
         notificationServiceProvider.overrideWithValue(notifications),
         maintenanceRepositoryProvider.overrideWithValue(repository),
+        formTemplateRepositoryProvider.overrideWithValue(
+          formTemplateRepository,
+        ),
       ],
       child: const GestionInternaApp(),
     ),

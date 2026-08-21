@@ -83,6 +83,27 @@ final class DatabaseService {
         is_read INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS form_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS form_template_questions (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES form_templates(id) ON DELETE CASCADE,
+        prompt TEXT NOT NULL,
+        type TEXT NOT NULL,
+        required INTEGER NOT NULL,
+        sort_order INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS form_template_question_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question_id TEXT NOT NULL REFERENCES form_template_questions(id) ON DELETE CASCADE,
+        value TEXT NOT NULL,
+        sort_order INTEGER NOT NULL
+      );
     ''');
   }
 

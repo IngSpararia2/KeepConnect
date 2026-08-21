@@ -41,6 +41,10 @@ class _AppShellState extends ConsumerState<AppShell> {
             key: const Key('session-menu'),
             tooltip: 'Cuenta y áreas',
             onSelected: (action) async {
+              if (action == _SessionAction.templates) {
+                context.push('/form-templates');
+                return;
+              }
               if (action == _SessionAction.areas) {
                 context.go('/areas');
                 return;
@@ -48,8 +52,16 @@ class _AppShellState extends ConsumerState<AppShell> {
               await ref.read(sessionProvider.notifier).logout();
               if (context.mounted) context.go('/login');
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            itemBuilder: (_) => [
+              if (session.isAdministrator)
+                const PopupMenuItem(
+                  value: _SessionAction.templates,
+                  child: ListTile(
+                    leading: Icon(Icons.description_outlined),
+                    title: Text('Formularios prediseñados'),
+                  ),
+                ),
+              const PopupMenuItem(
                 value: _SessionAction.areas,
                 child: ListTile(
                   leading: Icon(Icons.apps_rounded),
@@ -123,7 +135,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-enum _SessionAction { areas, logout }
+enum _SessionAction { templates, areas, logout }
 
 class _TestModeSelector extends StatelessWidget {
   const _TestModeSelector({required this.role, required this.onSelected});

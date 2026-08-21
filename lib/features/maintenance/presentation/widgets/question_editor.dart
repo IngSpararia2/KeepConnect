@@ -4,24 +4,28 @@ import 'package:uuid/uuid.dart';
 import '../../domain/ticket_enums.dart';
 import '../../domain/ticket_question.dart';
 
-Future<TicketQuestion?> showQuestionEditor(BuildContext context) =>
-    showDialog<TicketQuestion>(
-      context: context,
-      builder: (_) => const QuestionEditorDialog(),
-    );
+Future<TicketQuestion?> showQuestionEditor(
+  BuildContext context, {
+  TicketQuestion? initial,
+}) => showDialog<TicketQuestion>(
+  context: context,
+  builder: (_) => QuestionEditorDialog(initial: initial),
+);
 
 class QuestionEditorDialog extends StatefulWidget {
-  const QuestionEditorDialog({super.key});
+  const QuestionEditorDialog({this.initial, super.key});
+  final TicketQuestion? initial;
+
   @override
   State<QuestionEditorDialog> createState() => _QuestionEditorDialogState();
 }
 
 class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
-  final _prompt = TextEditingController();
+  late final _prompt = TextEditingController(text: widget.initial?.prompt);
   final _option = TextEditingController();
-  final _options = <String>[];
-  var _type = QuestionType.freeText;
-  var _required = false;
+  late final _options = List<String>.of(widget.initial?.options ?? const []);
+  late var _type = widget.initial?.type ?? QuestionType.freeText;
+  late var _required = widget.initial?.required ?? false;
   String? _error;
 
   @override
@@ -51,11 +55,11 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
 
   void _save() {
     final question = TicketQuestion(
-      id: const Uuid().v4(),
+      id: widget.initial?.id ?? const Uuid().v4(),
       prompt: _prompt.text.trim(),
       type: _type,
       required: _required,
-      order: 0,
+      order: widget.initial?.order ?? 0,
       options: _type == QuestionType.freeText ? const [] : List.of(_options),
     );
     final error = question.validate();
@@ -68,7 +72,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Añadir pregunta'),
+    title: Text(widget.initial == null ? 'Añadir pregunta' : 'Editar pregunta'),
     content: SizedBox(
       width: 520,
       child: SingleChildScrollView(
@@ -82,6 +86,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<QuestionType>(
+              key: const Key('question-type'),
               initialValue: _type,
               decoration: const InputDecoration(labelText: 'Tipo'),
               items: QuestionType.values
@@ -93,6 +98,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
               onChanged: (value) => setState(() => _type = value ?? _type),
             ),
             SwitchListTile(
+              key: const Key('question-required'),
               contentPadding: EdgeInsets.zero,
               title: const Text('Respuesta obligatoria'),
               value: _required,
@@ -103,6 +109,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
                 children: [
                   Expanded(
                     child: TextField(
+                      key: const Key('question-option'),
                       controller: _option,
                       decoration: const InputDecoration(
                         labelText: 'Nueva opción',
@@ -111,6 +118,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
                     ),
                   ),
                   IconButton(
+                    key: const Key('add-question-option'),
                     onPressed: _addOption,
                     icon: const Icon(Icons.add_circle_outline),
                     tooltip: 'Añadir opción',
@@ -118,13 +126,13 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
                 ],
               ),
               const SizedBox(height: 8),
-              for (var i = 0; i < _options.length; i++)
+              for (var index = 0; index < _options.length; index++)
                 ListTile(
                   dense: true,
-                  title: Text(_options[i]),
+                  title: Text(_options[index]),
                   trailing: IconButton(
                     icon: const Icon(Icons.close),
-                    onPressed: () => setState(() => _options.removeAt(i)),
+                    onPressed: () => setState(() => _options.removeAt(index)),
                   ),
                 ),
             ],
@@ -148,7 +156,7 @@ class _QuestionEditorDialogState extends State<QuestionEditorDialog> {
       FilledButton(
         key: const Key('save-question'),
         onPressed: _save,
-        child: const Text('Añadir'),
+        child: Text(widget.initial == null ? 'Añadir' : 'Guardar'),
       ),
     ],
   );
