@@ -1,0 +1,193 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userExists() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return userExists() && currentUser().active == true;
+    }
+
+    function hasRole(role) {
+      return activeUser() && currentUser().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function canReadTicket(ticket) {
+      return activeUser() && (
+        isAdmin() ||
+        (hasRole('production') && ticket.requesterUid == request.auth.uid) ||
+        (hasRole('maintenance') && ticket.targetDepartmentId == currentUser().departmentId) ||
+        (ticket.participantUids is list && request.auth.uid in ticket.participantUids)
+      );
+    }
+
+    function canReadTicketById(ticketId) {
+      return canReadTicket(
+        get(/databases/$(database)/documents/tickets/$(ticketId)).data
+      );
+    }
+
+    match /users/{userId} {
+      // Un usuario autenticado puede leer su propio perfil aun estando
+      // desactivado, para que la app muestre el estado y cierre la sesión.
+      allow get: if (signedIn() && request.auth.uid == userId) ||
+        (activeUser() && (
+        isAdmin() ||
+        (
+          hasRole('maintenance') &&
+          resource.data.active == true &&
+          resource.data.role == 'maintenance' &&
+          resource.data.departmentId == currentUser().departmentId
+        )
+      ));
+
+      allow list: if isAdmin() || (
+        hasRole('maintenance') &&
+        resource.data.active == true &&
+        resource.data.role == 'maintenance' &&
+        resource.data.departmentId == currentUser().departmentId
+      );
+
+      // Los perfiles, roles y activación se administran exclusivamente con Admin SDK.
+      allow create, update, delete: if false;
+
+      match /devices/{deviceId} {
+        function validDevice() {
+          return request.resource.data.keys().hasOnly([
+              'installationId',
+              'uid',
+              'token',
+              'platform',
+              'applicationId',
+              'notificationsEnabled',
+              'permissionStatus',
+              'installationCreatedAt',
+              'updatedAt',
+              'lastSeenAt'
+            ]) &&
+            request.resource.data.keys().hasAll([
+              'installationId',
+              'uid',
+              'token',
+              'platform',
+              'applicationId',
+              'notificationsEnabled',
+              'permissionStatus',
+              'installationCreatedAt',
+              'updatedAt',
+              'lastSeenAt'
+            ]) &&
+            request.resource.data.installationId == deviceId &&
+            request.resource.data.uid == userId &&
+            request.resource.data.token is string &&
+            request.resource.data.token.size() > 20 &&
+            request.resource.data.token.size() <= 4096 &&
+            request.resource.data.platform == 'android' &&
+            request.resource.data.applicationId is string &&
+            request.resource.data.notificationsEnabled is bool &&
+            request.resource.data.permissionStatus is string &&
+            request.resource.data.installationCreatedAt is timestamp &&
+            request.resource.data.updatedAt == request.time &&
+            request.resource.data.lastSeenAt == request.time;
+        }
+
+        allow get, list: if activeUser() && request.auth.uid == userId;
+        // Registration and cleanup pass through Admin SDK callables so a token
+        // or installation can have exactly one owner across account changes.
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /departments/{departmentId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /modules/{moduleId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /assets/{assetId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /ticket_categories/{categoryId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /form_templates/{templateId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /tickets/{ticketId} {
+      allow get, list: if canReadTicket(resource.data);
+
+      // Toda mutación de dominio pasa por callables validadas y transaccionales.
+      allow create, update, delete: if false;
+
+      match /comments/{commentId} {
+        allow read: if canReadTicketById(ticketId);
+        allow create, update, delete: if false;
+      }
+
+      match /events/{eventId} {
+        allow read: if canReadTicketById(ticketId);
+        allow create, update, delete: if false;
+      }
+
+      match /attachments/{attachmentId} {
+        allow read: if canReadTicketById(ticketId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Colecciones internas del backend: nunca son accesibles desde la app.
+    match /counters/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /_command_receipts/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /notification_jobs/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /device_installations/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /device_tokens/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

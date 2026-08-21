@@ -1,0 +1,74 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userExists() {
+      return signedIn() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUser() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function activeUser() {
+      return userExists() && currentUser().active == true;
+    }
+
+    function ticket(ticketId) {
+      return firestore.get(
+        /databases/(default)/documents/tickets/$(ticketId)
+      ).data;
+    }
+
+    function canAccessTicket(ticketId) {
+      return activeUser() && (
+        currentUser().role == 'admin' ||
+        (
+          currentUser().role == 'production' &&
+          ticket(ticketId).requesterUid == request.auth.uid
+        ) ||
+        (
+          currentUser().role == 'maintenance' &&
+          ticket(ticketId).targetDepartmentId == currentUser().departmentId
+        ) ||
+        (
+          ticket(ticketId).participantUids is list &&
+          request.auth.uid in ticket(ticketId).participantUids
+        )
+      );
+    }
+
+    match /tickets/{ticketId}/{attachmentId}/{fileName} {
+      allow read: if canAccessTicket(ticketId);
+
+      allow create: if canAccessTicket(ticketId) &&
+        ticket(ticketId).isOpen == true &&
+        request.resource.size > 0 &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.metadata.ticketId == ticketId &&
+        request.resource.metadata.attachmentId == attachmentId &&
+        request.resource.metadata.uploaderUid == request.auth.uid;
+
+      // Permite limpiar una subida huérfana propia solo antes de que la callable
+      // registre sus metadatos. Una evidencia registrada queda inmutable.
+      allow delete: if activeUser() &&
+        resource.metadata.uploaderUid == request.auth.uid &&
+        !firestore.exists(
+          /databases/(default)/documents/tickets/$(ticketId)/attachments/$(attachmentId)
+        );
+      allow update: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
