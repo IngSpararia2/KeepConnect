@@ -30,10 +30,12 @@ final class LocalNotificationService implements NotificationGateway {
   }
 
   static const _channel = AndroidNotificationChannel(
-    'gestion_interna_local_v1',
+    'gestion_interna_local_v2',
     'Solicitudes de mantenimiento',
     description: 'Cambios y novedades de las solicitudes locales',
     importance: Importance.high,
+    enableVibration: true,
+    playSound: true,
   );
 
   @override
@@ -81,6 +83,8 @@ final class LocalNotificationService implements NotificationGateway {
           icon: 'ic_stat_maintenance',
           importance: urgent ? Importance.max : Importance.high,
           priority: urgent ? Priority.max : Priority.high,
+          enableVibration: true,
+          playSound: true,
         ),
       ),
       payload: ticketId,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/app_providers.dart';
 import '../../../core/utils/date_time_formatters.dart';
@@ -82,12 +83,20 @@ class _TicketDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(sessionProvider).role;
+    final role = ref.watch(sessionProvider).effectiveRole;
     final next = StatusTransitionPolicy.next(ticket.status, role);
     return DefaultTabController(
       length: 3,
       child: Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            key: const Key('ticket-back'),
+            tooltip: 'Atrás',
+            onPressed: () =>
+                context.canPop() ? context.pop() : context.go('/home'),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
           title: Text(ticket.humanCode),
           bottom: const TabBar(
             tabs: [

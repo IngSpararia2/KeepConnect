@@ -10,7 +10,7 @@ class MaintenanceDashboardScreen extends ConsumerWidget {
   const MaintenanceDashboardScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(sessionProvider).role;
+    final role = ref.watch(sessionProvider).effectiveRole;
     return ref
         .watch(ticketsProvider)
         .when(
@@ -49,15 +49,6 @@ class MaintenanceDashboardScreen extends ConsumerWidget {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                if (role == AppRole.production) ...[
-                  FilledButton.icon(
-                    key: const Key('create-ticket'),
-                    onPressed: () => context.push('/tickets/new'),
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Crear solicitud'),
-                  ),
-                  const SizedBox(height: 18),
-                ],
                 LayoutBuilder(
                   builder: (_, constraints) => GridView.count(
                     crossAxisCount: constraints.maxWidth >= 700 ? 3 : 2,
@@ -95,6 +86,15 @@ class MaintenanceDashboardScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
+                if (role == AppRole.production) ...[
+                  const SizedBox(height: 22),
+                  FilledButton.icon(
+                    key: const Key('create-ticket'),
+                    onPressed: () => context.push('/tickets/new'),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Crear solicitud'),
+                  ),
+                ],
               ],
             );
           },

@@ -100,7 +100,8 @@ class _TicketListScreenState extends ConsumerState<TicketListScreen> {
                         ),
                       ),
               ),
-              if (ref.watch(sessionProvider).role == AppRole.production)
+              if (ref.watch(sessionProvider).effectiveRole ==
+                  AppRole.production)
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: SizedBox(

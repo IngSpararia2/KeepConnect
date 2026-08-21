@@ -5,15 +5,30 @@ import 'package:go_router/go_router.dart';
 import '../features/maintenance/presentation/area_selection_screen.dart';
 import '../features/maintenance/presentation/app_shell.dart';
 import '../features/maintenance/presentation/create_ticket_screen.dart';
+import '../features/maintenance/presentation/login_screen.dart';
 import '../features/maintenance/presentation/ticket_detail_screen.dart';
 import 'app_providers.dart';
 
-final appRouterProvider = Provider<GoRouter>(
-  (ref) => GoRouter(
+final appRouterProvider = Provider<GoRouter>((ref) {
+  final refresh = _RouterRefreshNotifier();
+  ref
+    ..onDispose(refresh.dispose)
+    ..listen(sessionProvider, (_, _) => refresh.refresh());
+  return GoRouter(
     initialLocation: '/splash',
+    refreshListenable: refresh,
+    redirect: (_, state) {
+      final session = ref.read(sessionProvider);
+      final location = state.matchedLocation;
+      if (location == '/splash') return null;
+      if (!session.loggedIn) return location == '/login' ? null : '/login';
+      if (location == '/login') return '/areas';
+      return null;
+    },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
-      GoRoute(path: '/area', builder: (_, _) => const AreaSelectionScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/areas', builder: (_, _) => const AreaSelectionScreen()),
       GoRoute(path: '/home', builder: (_, _) => const AppShell()),
       GoRoute(
         path: '/tickets/new',
@@ -25,8 +40,12 @@ final appRouterProvider = Provider<GoRouter>(
             TicketDetailScreen(ticketId: state.pathParameters['ticketId']!),
       ),
     ],
-  ),
-);
+  );
+});
+
+class _RouterRefreshNotifier extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -40,8 +59,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     super.initState();
     Future<void>.delayed(const Duration(milliseconds: 850), () {
       if (!mounted) return;
-      final selected = ref.read(sessionProvider).areaSelected;
-      context.go(selected ? '/home' : '/area');
+      context.go(ref.read(sessionProvider).loggedIn ? '/areas' : '/login');
     });
   }
 

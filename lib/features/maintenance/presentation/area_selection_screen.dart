@@ -9,7 +9,20 @@ class AreaSelectionScreen extends ConsumerWidget {
   const AreaSelectionScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    appBar: AppBar(title: const Text('Seleccionar área')),
+    appBar: AppBar(
+      title: const Text('Seleccionar área'),
+      actions: [
+        IconButton(
+          key: const Key('logout-from-areas'),
+          tooltip: 'Cerrar sesión',
+          onPressed: () async {
+            await ref.read(sessionProvider.notifier).logout();
+            if (context.mounted) context.go('/login');
+          },
+          icon: const Icon(Icons.logout_rounded),
+        ),
+      ],
+    ),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -31,10 +44,7 @@ class AreaSelectionScreen extends ConsumerWidget {
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     key: const Key('select-plant'),
-                    onTap: () async {
-                      await ref.read(sessionProvider.notifier).selectPlant();
-                      if (context.mounted) context.go('/home');
-                    },
+                    onTap: () => context.go('/home'),
                     child: const Padding(
                       padding: EdgeInsets.all(22),
                       child: Row(

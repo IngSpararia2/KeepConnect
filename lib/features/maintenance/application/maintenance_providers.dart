@@ -19,10 +19,14 @@ final ticketEventsProvider = StreamProvider.family<List<TicketEvent>, String>(
   (ref, id) => ref.watch(maintenanceRepositoryProvider).watchEvents(id),
 );
 final notificationsProvider = StreamProvider<List<AppNotification>>((ref) {
-  final role = ref.watch(sessionProvider.select((state) => state.role));
+  final role = ref.watch(
+    sessionProvider.select((state) => state.effectiveRole),
+  );
   return ref.watch(maintenanceRepositoryProvider).watchNotifications(role);
 });
 final unreadNotificationsProvider = StreamProvider<int>((ref) {
-  final role = ref.watch(sessionProvider.select((state) => state.role));
+  final role = ref.watch(
+    sessionProvider.select((state) => state.effectiveRole),
+  );
   return ref.watch(maintenanceRepositoryProvider).watchUnreadCount(role);
 });

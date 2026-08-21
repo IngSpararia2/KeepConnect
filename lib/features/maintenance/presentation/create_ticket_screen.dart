@@ -68,7 +68,7 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
       final result = await ref
           .read(maintenanceRepositoryProvider)
           .createTicket(input);
-      if (mounted) context.go('/tickets/${result.ticketId}');
+      if (mounted) context.pushReplacement('/tickets/${result.ticketId}');
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -104,6 +104,7 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
               ),
               const SizedBox(height: 12),
               TextField(
+                key: const Key('ticket-location'),
                 controller: _location,
                 decoration: const InputDecoration(
                   labelText: 'Ubicación / zona *',

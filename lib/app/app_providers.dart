@@ -16,26 +16,43 @@ final localSessionProvider = Provider<LocalSession>(
 );
 
 class SessionState {
-  const SessionState({required this.areaSelected, required this.role});
-  final bool areaSelected;
-  final AppRole role;
+  const SessionState({
+    required this.loggedIn,
+    required this.accountRole,
+    required this.effectiveRole,
+  });
+  final bool loggedIn;
+  final AccountRole? accountRole;
+  final AppRole effectiveRole;
+  bool get isAdministrator => accountRole == AccountRole.administrator;
 }
 
 class SessionController extends Notifier<SessionState> {
   @override
-  SessionState build() {
+  SessionState build() => _snapshot(ref.read(localSessionProvider));
+
+  SessionState _snapshot(LocalSession local) => SessionState(
+    loggedIn: local.loggedIn,
+    accountRole: local.accountRole,
+    effectiveRole: local.effectiveRole,
+  );
+
+  Future<void> login(AccountRole role) async {
     final local = ref.read(localSessionProvider);
-    return SessionState(areaSelected: local.areaSelected, role: local.role);
+    await local.login(role);
+    state = _snapshot(local);
   }
 
-  Future<void> selectPlant() async {
-    await ref.read(localSessionProvider).selectPlant();
-    state = SessionState(areaSelected: true, role: state.role);
+  Future<void> setEffectiveRole(AppRole role) async {
+    final local = ref.read(localSessionProvider);
+    await local.setEffectiveRole(role);
+    state = _snapshot(local);
   }
 
-  Future<void> setRole(AppRole role) async {
-    await ref.read(localSessionProvider).setRole(role);
-    state = SessionState(areaSelected: state.areaSelected, role: role);
+  Future<void> logout() async {
+    final local = ref.read(localSessionProvider);
+    await local.logout();
+    state = _snapshot(local);
   }
 }
 
