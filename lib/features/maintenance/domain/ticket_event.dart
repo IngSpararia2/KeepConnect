@@ -8,6 +8,7 @@ class TicketEvent {
     required this.actor,
     required this.message,
     required this.createdAt,
+    this.actorUserId,
   });
   final String id;
   final String ticketId;
@@ -15,4 +16,5 @@ class TicketEvent {
   final AppRole actor;
   final String message;
   final DateTime createdAt;
+  final String? actorUserId;
 }

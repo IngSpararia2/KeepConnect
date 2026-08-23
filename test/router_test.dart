@@ -3,68 +3,102 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gestion_interna/app/app_providers.dart';
 import 'package:gestion_interna/app/router.dart';
-import 'package:gestion_interna/core/notifications/app_notification.dart';
+import 'package:gestion_interna/core/database/database_service.dart';
 import 'package:gestion_interna/core/session/local_session.dart';
-import 'package:gestion_interna/features/maintenance/application/maintenance_providers.dart';
-import 'package:gestion_interna/features/maintenance/domain/maintenance_ticket.dart';
+import 'package:gestion_interna/features/maintenance/domain/ticket_enums.dart';
+import 'package:gestion_interna/features/organization/data/password_hasher.dart';
+import 'package:gestion_interna/features/organization/data/sqlite_organization_repository.dart';
+import 'package:gestion_interna/features/organization/domain/organization_models.dart';
 
 void main() {
-  testWidgets('sesión cerrada abre login', (tester) async {
-    final session = await LocalSession.load(store: _MemorySessionStore());
-    await _pumpRouter(tester, session);
-    expect(find.byKey(const Key('login-submit')), findsOneWidget);
-  });
-
-  testWidgets('sesión abierta abre áreas, permite entrar, volver y salir', (
+  testWidgets('primera instalación abre bootstrap, sin selector de rol', (
     tester,
   ) async {
+    final database = DatabaseService.inMemory(seedLegacyContext: false);
     final session = await LocalSession.load(store: _MemorySessionStore());
-    await session.login(AccountRole.production);
-    await _pumpRouter(tester, session);
-    expect(find.byKey(const Key('select-plant')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('select-plant')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('session-menu')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('session-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Cambiar área'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('select-plant')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('logout-from-areas')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('login-submit')), findsOneWidget);
-  });
-}
-
-Future<void> _pumpRouter(WidgetTester tester, LocalSession session) async {
-  await tester.binding.setSurfaceSize(const Size(900, 1400));
-  await tester.pumpWidget(
-    ProviderScope(
+    final organizations = SqliteOrganizationRepository(
+      database,
+      hasher: const PasswordHasher(iterations: 10000),
+    );
+    final container = ProviderContainer(
       overrides: [
         localSessionProvider.overrideWithValue(session),
-        ticketsProvider.overrideWith(
-          (_) => Stream.value(const <MaintenanceTicket>[]),
-        ),
-        notificationsProvider.overrideWith(
-          (_) => Stream.value(const <AppNotification>[]),
-        ),
-        unreadNotificationsProvider.overrideWith((_) => Stream.value(0)),
+        organizationRepositoryProvider.overrideWithValue(organizations),
+        authenticationRepositoryProvider.overrideWithValue(organizations),
       ],
-      child: const _RouterHarness(),
-    ),
-  );
-  await tester.pump(const Duration(seconds: 1));
-  await tester.pumpAndSettle();
-}
+    );
+    addTearDown(() async {
+      container.dispose();
+      await organizations.close();
+      database.close();
+    });
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: container.read(appRouterProvider),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('bootstrap-submit')), findsOneWidget);
+    expect(find.byKey(const Key('account-role')), findsNothing);
+  });
 
-class _RouterHarness extends ConsumerWidget {
-  const _RouterHarness();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) =>
-      MaterialApp.router(routerConfig: ref.watch(appRouterProvider));
+  testWidgets('usuario regular no accede por URL a administración', (
+    tester,
+  ) async {
+    final database = DatabaseService.inMemory();
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    final now = DateTime(2026);
+    await session.start(
+      AppUser(
+        id: 'regular',
+        username: 'regular',
+        displayName: 'Regular',
+        privilege: PlatformPrivilege.user,
+        companyId: DatabaseService.legacyCompanyId,
+        operationalRole: AppRole.production,
+        active: true,
+        areaAccessMode: AreaAccessMode.selected,
+        areaIds: const {DatabaseService.legacyPlantAreaId},
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await session.selectArea(
+      companyId: DatabaseService.legacyCompanyId,
+      areaId: DatabaseService.legacyPlantAreaId,
+    );
+    final organizations = SqliteOrganizationRepository(
+      database,
+      context: () => session.accessContext,
+      hasher: const PasswordHasher(iterations: 10000),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        localSessionProvider.overrideWithValue(session),
+        organizationRepositoryProvider.overrideWithValue(organizations),
+        authenticationRepositoryProvider.overrideWithValue(organizations),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await organizations.close();
+      database.close();
+    });
+    final router = container.read(appRouterProvider)..go('/admin');
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('logout-from-areas')), findsOneWidget);
+    expect(find.text('Administración'), findsNothing);
+  });
 }
 
 class _MemorySessionStore implements SessionStore {

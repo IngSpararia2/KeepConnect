@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../app/app_providers.dart';
 import '../application/form_template_providers.dart';
 import '../domain/form_template.dart';
 import '../domain/ticket_question.dart';
@@ -75,6 +76,7 @@ class _FormTemplateEditorScreenState
 
   Future<void> _save() async {
     final now = DateTime.now();
+    final session = ref.read(sessionProvider);
     final template = FormTemplate(
       id: widget.templateId ?? const Uuid().v4(),
       name: _name.text,
@@ -92,6 +94,8 @@ class _FormTemplateEditorScreenState
       ],
       createdAt: _createdAt ?? now,
       updatedAt: now,
+      companyId: session.companyId!,
+      areaId: session.areaId,
     );
     final errors = template.validate();
     if (errors.isNotEmpty) {

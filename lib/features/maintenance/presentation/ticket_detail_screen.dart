@@ -416,65 +416,15 @@ class _UpdatesTab extends ConsumerWidget {
   final AppRole role;
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    var type = role == AppRole.production
-        ? TicketUpdateType.note
-        : TicketUpdateType.observation;
-    final accepted = await showDialog<bool>(
+    final update = await showDialog<_UpdateDraft>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Añadir actualización'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<TicketUpdateType>(
-                initialValue: type,
-                items:
-                    (role == AppRole.production
-                            ? [
-                                TicketUpdateType.note,
-                                TicketUpdateType.instruction,
-                              ]
-                            : [
-                                TicketUpdateType.observation,
-                                TicketUpdateType.action,
-                              ])
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value.label),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) => setState(() => type = value ?? type),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                maxLines: 4,
-                decoration: const InputDecoration(labelText: 'Contenido'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Guardar'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _AddUpdateDialog(role: role),
     );
-    if (accepted == true) {
+    if (update != null) {
       try {
         await ref
             .read(maintenanceRepositoryProvider)
-            .addUpdate(ticket.id, type, controller.text, role);
+            .addUpdate(ticket.id, update.type, update.content, role);
       } catch (error) {
         if (context.mounted) {
           ScaffoldMessenger.of(
@@ -483,7 +433,6 @@ class _UpdatesTab extends ConsumerWidget {
         }
       }
     }
-    controller.dispose();
   }
 
   @override
@@ -534,6 +483,79 @@ class _UpdatesTab extends ConsumerWidget {
           ],
         ),
       );
+}
+
+class _UpdateDraft {
+  const _UpdateDraft(this.type, this.content);
+  final TicketUpdateType type;
+  final String content;
+}
+
+class _AddUpdateDialog extends StatefulWidget {
+  const _AddUpdateDialog({required this.role});
+  final AppRole role;
+
+  @override
+  State<_AddUpdateDialog> createState() => _AddUpdateDialogState();
+}
+
+class _AddUpdateDialogState extends State<_AddUpdateDialog> {
+  final _content = TextEditingController();
+  late var _type = widget.role == AppRole.production
+      ? TicketUpdateType.note
+      : TicketUpdateType.observation;
+
+  @override
+  void dispose() {
+    _content.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Añadir actualización'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        DropdownButtonFormField<TicketUpdateType>(
+          key: const Key('update-type'),
+          initialValue: _type,
+          items:
+              (widget.role == AppRole.production
+                      ? [TicketUpdateType.note, TicketUpdateType.instruction]
+                      : [TicketUpdateType.observation, TicketUpdateType.action])
+                  .map(
+                    (value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(value.label),
+                    ),
+                  )
+                  .toList(),
+          onChanged: (value) => setState(() => _type = value ?? _type),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('update-content'),
+          controller: _content,
+          maxLines: 4,
+          decoration: const InputDecoration(labelText: 'Contenido'),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        key: const Key('cancel-update'),
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        key: const Key('save-update'),
+        onPressed: () =>
+            Navigator.pop(context, _UpdateDraft(_type, _content.text)),
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
 }
 
 class _HistoryTab extends ConsumerWidget {

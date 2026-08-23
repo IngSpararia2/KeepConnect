@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/database/database_service.dart';
 import '../../../core/notifications/app_notification.dart';
 import '../../../core/notifications/notification_service.dart';
+import '../../organization/domain/organization_models.dart';
 import '../domain/create_ticket_input.dart';
 import '../domain/maintenance_ticket.dart';
 import '../domain/status_transition_policy.dart';
@@ -20,12 +21,15 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   SqliteMaintenanceRepository(
     this._service, {
     NotificationGateway notificationGateway = const NoopNotificationGateway(),
+    AccessContext? Function()? context,
     this._uuid = const Uuid(),
-  }) : _notifications = notificationGateway;
+  }) : _notifications = notificationGateway,
+       _context = context ?? (() => AccessContext.legacy);
 
   final DatabaseService _service;
   final NotificationGateway _notifications;
   final Uuid _uuid;
+  final AccessContext? Function() _context;
   final _changes = StreamController<void>.broadcast();
   Database get _db => _service.database;
 
@@ -50,15 +54,15 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   Stream<List<AppNotification>> watchNotifications(AppRole recipient) =>
       _watch(() => _readNotifications(recipient));
   @override
-  Stream<int> watchUnreadCount(AppRole recipient) => _watch(
-    () =>
-        _db.select(
-              'SELECT COUNT(*) AS total FROM app_notifications '
-              'WHERE recipient = ? AND is_read = 0',
-              [recipient.name],
-            ).first['total']
-            as int,
-  );
+  Stream<int> watchUnreadCount(AppRole recipient) => _watch(() {
+    final scope = _requireScope();
+    return _db.select(
+          'SELECT COUNT(*) AS total FROM app_notifications '
+          'WHERE recipient = ? AND company_id = ? AND area_id = ? AND is_read = 0',
+          [recipient.name, scope.companyId, scope.areaId],
+        ).first['total']
+        as int;
+  });
 
   void _transaction(void Function() operation) {
     _db.execute('BEGIN IMMEDIATE');
@@ -73,8 +77,29 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
 
   @override
   Future<CreatedTicketResult> createTicket(CreateTicketInput input) async {
+    final scope = _requireScope();
+    final actor = _actualActor(AppRole.production);
+    if (actor != AppRole.production) {
+      throw StateError('Solo Producción puede crear solicitudes.');
+    }
     final errors = input.validate();
     if (errors.isNotEmpty) throw ArgumentError(errors.join('\n'));
+    _validateCatalogSelection(
+      scope,
+      CatalogKind.location,
+      input.locationOptionId,
+      input.location,
+      input.locationIsCustom,
+      required: true,
+    );
+    _validateCatalogSelection(
+      scope,
+      CatalogKind.equipment,
+      input.equipmentOptionId,
+      input.equipment,
+      input.equipmentIsCustom,
+      required: false,
+    );
     final now = DateTime.now().toUtc();
     final id = _uuid.v4();
     final sequence =
@@ -89,25 +114,42 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     final code = 'MTTO-${sequence.toString().padLeft(4, '0')}';
     late final _PendingNotification pending;
     _transaction(() {
-      _db.execute('INSERT INTO tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-        id,
-        code,
-        input.title.trim(),
-        input.description.trim(),
-        input.location.trim(),
-        _nullable(input.equipment),
-        input.priority.name,
-        TicketStatus.pending.name,
-        now.toIso8601String(),
-        now.toIso8601String(),
-      ]);
+      _db.execute(
+        '''INSERT INTO tickets(
+        id, human_code, title, description, location, equipment, priority, status,
+        created_at, updated_at, company_id, area_id, created_by_user_id,
+        location_option_id, location_snapshot, location_is_custom,
+        equipment_option_id, equipment_snapshot, equipment_is_custom)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        [
+          id,
+          code,
+          input.title.trim(),
+          input.description.trim(),
+          input.location.trim(),
+          _nullable(input.equipment),
+          input.priority.name,
+          TicketStatus.pending.name,
+          now.toIso8601String(),
+          now.toIso8601String(),
+          scope.companyId,
+          scope.areaId,
+          scope.userId,
+          input.locationOptionId,
+          input.location.trim(),
+          input.locationIsCustom ? 1 : 0,
+          input.equipmentOptionId,
+          _nullable(input.equipment),
+          input.equipmentIsCustom ? 1 : 0,
+        ],
+      );
       for (var i = 0; i < input.questions.length; i++) {
         final question = input.questions[i];
         _insertQuestion(id, question, i);
       }
       _insertEvent(
         id,
-        AppRole.production,
+        actor,
         TicketEventType.created,
         'Planta creó la solicitud $code.',
         now,
@@ -132,6 +174,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     TicketStatus status,
     AppRole actor,
   ) async {
+    actor = _actualActor(actor);
     final ticket = _requireTicket(ticketId);
     if (!StatusTransitionPolicy.canTransition(
       from: ticket.status,
@@ -181,6 +224,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     Map<String, List<String>> answers,
     AppRole actor,
   ) async {
+    actor = _actualActor(actor);
     final ticket = _requireTicket(ticketId);
     if (actor != AppRole.maintenance) {
       throw StateError('Solo Mantenimiento puede responder el formulario.');
@@ -254,6 +298,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     TicketQuestion question,
     AppRole actor,
   ) async {
+    actor = _actualActor(actor);
     final ticket = _requireTicket(ticketId);
     if (actor != AppRole.production || ticket.status == TicketStatus.closed) {
       throw StateError('No es posible añadir preguntas a este ticket.');
@@ -294,20 +339,26 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     String content,
     AppRole actor,
   ) async {
+    actor = _actualActor(actor);
     final ticket = _requireTicket(ticketId);
     final clean = content.trim();
     if (clean.isEmpty) throw ArgumentError('Escribe una actualización.');
     final now = DateTime.now().toUtc();
     late final _PendingNotification pending;
     _transaction(() {
-      _db.execute('INSERT INTO ticket_updates VALUES (?, ?, ?, ?, ?, ?)', [
-        _uuid.v4(),
-        ticketId,
-        actor.name,
-        type.name,
-        clean,
-        now.toIso8601String(),
-      ]);
+      _db.execute(
+        'INSERT INTO ticket_updates(id, ticket_id, actor, type, content, created_at, actor_user_id) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          _uuid.v4(),
+          ticketId,
+          actor.name,
+          type.name,
+          clean,
+          now.toIso8601String(),
+          _requireScope().userId,
+        ],
+      );
       _db.execute('UPDATE tickets SET updated_at = ? WHERE id = ?', [
         now.toIso8601String(),
         ticketId,
@@ -334,9 +385,11 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
 
   @override
   Future<void> markNotificationRead(String notificationId) async {
-    _db.execute('UPDATE app_notifications SET is_read = 1 WHERE id = ?', [
-      notificationId,
-    ]);
+    final scope = _requireScope();
+    _db.execute(
+      'UPDATE app_notifications SET is_read = 1 WHERE id = ? AND company_id = ? AND area_id = ?',
+      [notificationId, scope.companyId, scope.areaId],
+    );
     _changed();
   }
 
@@ -364,14 +417,19 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     String message,
     DateTime createdAt,
   ) {
-    _db.execute('INSERT INTO ticket_events VALUES (?, ?, ?, ?, ?, ?)', [
-      _uuid.v4(),
-      ticketId,
-      actor.name,
-      type.name,
-      message,
-      createdAt.toIso8601String(),
-    ]);
+    _db.execute(
+      'INSERT INTO ticket_events(id, ticket_id, actor, type, message, created_at, actor_user_id) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        _uuid.v4(),
+        ticketId,
+        actor.name,
+        type.name,
+        message,
+        createdAt.toIso8601String(),
+        _requireScope().userId,
+      ],
+    );
   }
 
   _PendingNotification _insertNotification(
@@ -383,8 +441,10 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     DateTime createdAt,
   ) {
     final pending = _PendingNotification(ticketId, title, message);
+    final scope = _requireScope();
     _db.execute(
-      'INSERT INTO app_notifications VALUES (?, ?, ?, ?, ?, ?, 0, ?)',
+      'INSERT INTO app_notifications(id, ticket_id, title, message, recipient, event_type, is_read, '
+      'created_at, company_id, area_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
       [
         _uuid.v4(),
         ticketId,
@@ -393,6 +453,8 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
         recipient.name,
         eventType,
         createdAt.toIso8601String(),
+        scope.companyId,
+        scope.areaId,
       ],
     );
     return pending;
@@ -414,13 +476,23 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   MaintenanceTicket _requireTicket(String id) =>
       _readTicket(id) ?? (throw StateError('La solicitud no existe.'));
 
-  List<MaintenanceTicket> _readTickets() => _db
-      .select('SELECT * FROM tickets ORDER BY updated_at DESC')
-      .map(_ticketFromRow)
-      .toList();
+  List<MaintenanceTicket> _readTickets() {
+    final scope = _requireScope();
+    return _db
+        .select(
+          'SELECT * FROM tickets WHERE company_id = ? AND area_id = ? ORDER BY updated_at DESC',
+          [scope.companyId, scope.areaId],
+        )
+        .map(_ticketFromRow)
+        .toList();
+  }
 
   MaintenanceTicket? _readTicket(String id) {
-    final rows = _db.select('SELECT * FROM tickets WHERE id = ?', [id]);
+    final scope = _requireScope();
+    final rows = _db.select(
+      'SELECT * FROM tickets WHERE id = ? AND company_id = ? AND area_id = ?',
+      [id, scope.companyId, scope.areaId],
+    );
     return rows.isEmpty ? null : _ticketFromRow(rows.first);
   }
 
@@ -429,8 +501,15 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     humanCode: row['human_code'] as String,
     title: row['title'] as String,
     description: row['description'] as String,
-    location: row['location'] as String,
-    equipment: row['equipment'] as String?,
+    location: (row['location_snapshot'] ?? row['location']) as String,
+    equipment: (row['equipment_snapshot'] ?? row['equipment']) as String?,
+    companyId: row['company_id'] as String,
+    areaId: row['area_id'] as String,
+    createdByUserId: row['created_by_user_id'] as String,
+    locationOptionId: row['location_option_id'] as String?,
+    locationIsCustom: row['location_is_custom'] == 1,
+    equipmentOptionId: row['equipment_option_id'] as String?,
+    equipmentIsCustom: row['equipment_is_custom'] == 1,
     priority: TicketPriority.fromValue(row['priority']),
     status: TicketStatus.fromValue(row['status']),
     createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
@@ -484,58 +563,130 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
       )
       .isEmpty;
 
-  List<TicketUpdate> _readUpdates(String ticketId) => _db
-      .select(
-        'SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at',
-        [ticketId],
-      )
-      .map(
-        (row) => TicketUpdate(
-          id: row['id'] as String,
-          ticketId: ticketId,
-          actor: AppRole.values.byName(row['actor'] as String),
-          type: TicketUpdateType.values.byName(row['type'] as String),
-          content: row['content'] as String,
-          createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
-        ),
-      )
-      .toList();
+  List<TicketUpdate> _readUpdates(String ticketId) {
+    _requireTicket(ticketId);
+    return _db
+        .select(
+          'SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at',
+          [ticketId],
+        )
+        .map(
+          (row) => TicketUpdate(
+            id: row['id'] as String,
+            ticketId: ticketId,
+            actor: AppRole.values.byName(row['actor'] as String),
+            type: TicketUpdateType.values.byName(row['type'] as String),
+            content: row['content'] as String,
+            createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+            actorUserId: row['actor_user_id'] as String?,
+          ),
+        )
+        .toList();
+  }
 
-  List<TicketEvent> _readEvents(String ticketId) => _db
-      .select(
-        'SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at DESC',
-        [ticketId],
-      )
-      .map(
-        (row) => TicketEvent(
-          id: row['id'] as String,
-          ticketId: ticketId,
-          type: TicketEventType.fromValue(row['type']),
-          actor: AppRole.values.byName(row['actor'] as String),
-          message: row['message'] as String,
-          createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
-        ),
-      )
-      .toList();
+  List<TicketEvent> _readEvents(String ticketId) {
+    _requireTicket(ticketId);
+    return _db
+        .select(
+          'SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at DESC',
+          [ticketId],
+        )
+        .map(
+          (row) => TicketEvent(
+            id: row['id'] as String,
+            ticketId: ticketId,
+            type: TicketEventType.fromValue(row['type']),
+            actor: AppRole.values.byName(row['actor'] as String),
+            message: row['message'] as String,
+            createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+            actorUserId: row['actor_user_id'] as String?,
+          ),
+        )
+        .toList();
+  }
 
-  List<AppNotification> _readNotifications(AppRole recipient) => _db
-      .select(
-        'SELECT * FROM app_notifications WHERE recipient = ? ORDER BY created_at DESC',
-        [recipient.name],
-      )
-      .map(
-        (row) => AppNotification(
-          id: row['id'] as String,
-          ticketId: row['ticket_id'] as String,
-          title: row['title'] as String,
-          message: row['message'] as String,
-          recipient: recipient,
-          eventType: row['event_type'] as String,
-          read: row['is_read'] == 1,
-          createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
-        ),
-      )
-      .toList();
+  List<AppNotification> _readNotifications(AppRole recipient) {
+    final scope = _requireScope();
+    return _db
+        .select(
+          'SELECT * FROM app_notifications WHERE recipient = ? AND company_id = ? AND area_id = ? ORDER BY created_at DESC',
+          [recipient.name, scope.companyId, scope.areaId],
+        )
+        .map(
+          (row) => AppNotification(
+            id: row['id'] as String,
+            ticketId: row['ticket_id'] as String,
+            title: row['title'] as String,
+            message: row['message'] as String,
+            recipient: recipient,
+            eventType: row['event_type'] as String,
+            read: row['is_read'] == 1,
+            createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+            companyId: row['company_id'] as String?,
+            areaId: row['area_id'] as String?,
+            recipientUserId: row['recipient_user_id'] as String?,
+          ),
+        )
+        .toList();
+  }
+
+  AccessContext _requireScope() {
+    final scope = _context();
+    if (scope == null || scope.companyId == null || scope.areaId == null) {
+      throw StateError('Selecciona una empresa y un área antes de continuar.');
+    }
+    if (!scope.permits(scope.companyId!, scope.areaId!)) {
+      throw StateError('No tienes acceso al contexto seleccionado.');
+    }
+    return scope;
+  }
+
+  AppRole _actualActor(AppRole requested) {
+    final scope = _requireScope();
+    if (!scope.isSuperAdmin && requested != scope.operationalRole) {
+      throw StateError(
+        'El rol indicado no coincide con el usuario autenticado.',
+      );
+    }
+    return scope.isSuperAdmin ? requested : scope.operationalRole;
+  }
+
+  void _validateCatalogSelection(
+    AccessContext scope,
+    CatalogKind kind,
+    String? itemId,
+    String? snapshot,
+    bool custom, {
+    required bool required,
+  }) {
+    final clean = snapshot?.trim() ?? '';
+    if (custom) {
+      if (required && clean.isEmpty) {
+        throw ArgumentError('El valor personalizado es obligatorio.');
+      }
+      if (itemId != null) {
+        throw ArgumentError(
+          'Un valor personalizado no puede usar un ID de catálogo.',
+        );
+      }
+      return;
+    }
+    if (clean.isEmpty && !required && itemId == null) {
+      return;
+    }
+    if (itemId == null) {
+      throw ArgumentError('Selecciona una opción administrada.');
+    }
+    final rows = _db.select(
+      'SELECT name FROM catalog_items WHERE id = ? AND company_id = ? AND area_id = ? AND kind = ? AND active = 1',
+      [itemId, scope.companyId, scope.areaId, kind.name],
+    );
+    if (rows.isEmpty || rows.first['name'] != clean) {
+      throw StateError(
+        'La opción de catálogo no es válida para el área actual.',
+      );
+    }
+  }
 
   String? _nullable(String? value) {
     final clean = value?.trim();

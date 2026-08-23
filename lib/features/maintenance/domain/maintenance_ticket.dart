@@ -13,6 +13,13 @@ class MaintenanceTicket {
     required this.createdAt,
     required this.updatedAt,
     this.equipment,
+    this.companyId = 'legacy-company',
+    this.areaId = 'legacy-area-plant',
+    this.createdByUserId = 'legacy-system-user',
+    this.locationOptionId,
+    this.locationIsCustom = true,
+    this.equipmentOptionId,
+    this.equipmentIsCustom = false,
     this.questions = const [],
   });
   final String id;
@@ -21,6 +28,13 @@ class MaintenanceTicket {
   final String description;
   final String location;
   final String? equipment;
+  final String companyId;
+  final String areaId;
+  final String createdByUserId;
+  final String? locationOptionId;
+  final bool locationIsCustom;
+  final String? equipmentOptionId;
+  final bool equipmentIsCustom;
   final TicketPriority priority;
   final TicketStatus status;
   final DateTime createdAt;

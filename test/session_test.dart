@@ -1,79 +1,69 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gestion_interna/core/database/database_service.dart';
-import 'package:gestion_interna/core/notifications/notification_service.dart';
 import 'package:gestion_interna/core/session/local_session.dart';
-import 'package:gestion_interna/features/maintenance/data/sqlite_maintenance_repository.dart';
-import 'package:gestion_interna/features/maintenance/domain/create_ticket_input.dart';
 import 'package:gestion_interna/features/maintenance/domain/ticket_enums.dart';
+import 'package:gestion_interna/features/organization/domain/organization_models.dart';
 
 void main() {
-  test('sesión inicia cerrada', () async {
-    final session = await LocalSession.load(store: MemorySessionStore());
-    expect(session.loggedIn, isFalse);
-    expect(session.accountRole, isNull);
-  });
+  final now = DateTime(2026);
+  AppUser user({Set<String> areas = const {'area-a'}}) => AppUser(
+    id: 'user-a',
+    username: 'operador',
+    displayName: 'Operador',
+    privilege: PlatformPrivilege.user,
+    companyId: 'company-a',
+    operationalRole: AppRole.production,
+    active: true,
+    areaAccessMode: AreaAccessMode.selected,
+    areaIds: areas,
+    createdAt: now,
+    updatedAt: now,
+  );
 
-  for (final accountRole in AccountRole.values) {
-    test(
-      'login ${accountRole.label} persiste y resuelve effectiveRole',
-      () async {
-        final store = MemorySessionStore();
-        final session = await LocalSession.load(store: store);
-        await session.login(accountRole);
-        final reloaded = await LocalSession.load(store: store);
-        expect(reloaded.loggedIn, isTrue);
-        expect(reloaded.accountRole, accountRole);
-        expect(
-          reloaded.effectiveRole,
-          accountRole == AccountRole.maintenance
-              ? AppRole.maintenance
-              : AppRole.production,
-        );
-      },
-    );
-  }
-
-  test('solo Administrador puede cambiar effectiveRole', () async {
-    final normal = await LocalSession.load(store: MemorySessionStore());
-    await normal.login(AccountRole.production);
-    await expectLater(
-      normal.setEffectiveRole(AppRole.maintenance),
-      throwsStateError,
-    );
-    expect(normal.effectiveRole, AppRole.production);
-
-    final adminStore = MemorySessionStore();
-    final admin = await LocalSession.load(store: adminStore);
-    await admin.login(AccountRole.administrator);
-    await admin.setEffectiveRole(AppRole.maintenance);
-    expect(admin.effectiveRole, AppRole.maintenance);
-    expect(
-      (await LocalSession.load(store: adminStore)).effectiveRole,
-      AppRole.maintenance,
-    );
-  });
-
-  test('logout termina sesión sin tocar SQLite', () async {
+  test('sesión inicia cerrada y no persiste credenciales', () async {
     final store = MemorySessionStore();
     final session = await LocalSession.load(store: store);
-    await session.login(AccountRole.production);
-    final repository = SqliteMaintenanceRepository(
-      DatabaseService.inMemory(),
-      notificationGateway: const NoopNotificationGateway(),
+    expect(session.loggedIn, isFalse);
+    expect(store.values.keys, isNot(contains('password')));
+  });
+
+  test('persiste identidad y contexto, no un rol seleccionable', () async {
+    final store = MemorySessionStore();
+    final session = await LocalSession.load(store: store);
+    await session.start(user());
+    await session.selectArea(companyId: 'company-a', areaId: 'area-a');
+
+    final reloaded = await LocalSession.load(
+      store: store,
+      resolveUser: (id) async => id == 'user-a' ? user() : null,
     );
-    final created = await repository.createTicket(
-      const CreateTicketInput(
-        title: 'Persistente',
-        description: 'No borrar',
-        location: 'Planta',
-        priority: TicketPriority.medium,
-      ),
+    expect(reloaded.user?.id, 'user-a');
+    expect(reloaded.effectiveRole, AppRole.production);
+    expect(reloaded.accessContext?.areaId, 'area-a');
+    expect(store.values.keys.any((key) => key.contains('password')), isFalse);
+  });
+
+  test('rechaza un área fuera del permiso normalizado', () async {
+    final session = await LocalSession.load(store: MemorySessionStore());
+    await session.start(user());
+    await expectLater(
+      session.selectArea(companyId: 'company-a', areaId: 'area-b'),
+      throwsStateError,
     );
+    await expectLater(
+      session.selectArea(companyId: 'company-b', areaId: 'area-a'),
+      throwsStateError,
+    );
+  });
+
+  test('logout elimina identidad y contexto', () async {
+    final store = MemorySessionStore();
+    final session = await LocalSession.load(store: store);
+    await session.start(user());
+    await session.selectArea(companyId: 'company-a', areaId: 'area-a');
     await session.logout();
     expect(session.loggedIn, isFalse);
-    expect(session.accountRole, isNull);
-    expect(await repository.watchTicket(created.ticketId).first, isNotNull);
-    await repository.close();
+    expect(session.accessContext, isNull);
+    expect(store.values, isEmpty);
   });
 }
 

@@ -9,6 +9,7 @@ import '../domain/create_ticket_input.dart';
 import '../domain/form_template.dart';
 import '../domain/ticket_enums.dart';
 import '../domain/ticket_question.dart';
+import '../../organization/domain/organization_models.dart';
 import 'widgets/question_editor.dart';
 
 class CreateTicketScreen extends ConsumerStatefulWidget {
@@ -25,6 +26,35 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
   final _questions = <TicketQuestion>[];
   var _priority = TicketPriority.medium;
   var _saving = false;
+  var _loadingCatalogs = true;
+  List<CatalogItem> _locations = const [];
+  List<CatalogItem> _equipmentItems = const [];
+  String? _locationSelection;
+  String? _equipmentSelection;
+
+  static const _other = '__other__';
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_loadCatalogs);
+  }
+
+  Future<void> _loadCatalogs() async {
+    final session = ref.read(sessionProvider);
+    final repository = ref.read(organizationRepositoryProvider);
+    _locations = await repository
+        .watchCatalog(session.companyId!, session.areaId!, CatalogKind.location)
+        .first;
+    _equipmentItems = await repository
+        .watchCatalog(
+          session.companyId!,
+          session.areaId!,
+          CatalogKind.equipment,
+        )
+        .first;
+    if (mounted) setState(() => _loadingCatalogs = false);
+  }
 
   @override
   void dispose() {
@@ -106,11 +136,23 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
   }
 
   Future<void> _save() async {
+    final locationItem = _locations
+        .where((item) => item.id == _locationSelection)
+        .firstOrNull;
+    final equipmentItem = _equipmentItems
+        .where((item) => item.id == _equipmentSelection)
+        .firstOrNull;
+    final customLocation = _locationSelection == _other;
+    final customEquipment = _equipmentSelection == _other;
     final input = CreateTicketInput(
       title: _title.text,
       description: _description.text,
-      location: _location.text,
-      equipment: _equipment.text,
+      location: customLocation ? _location.text : locationItem?.name ?? '',
+      locationOptionId: locationItem?.id,
+      locationIsCustom: customLocation,
+      equipment: customEquipment ? _equipment.text : equipmentItem?.name,
+      equipmentOptionId: equipmentItem?.id,
+      equipmentIsCustom: customEquipment,
       priority: _priority,
       questions: [
         for (var i = 0; i < _questions.length; i++)
@@ -171,22 +213,65 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
                 decoration: const InputDecoration(labelText: 'Descripción *'),
               ),
               const SizedBox(height: 12),
-              TextField(
-                key: const Key('ticket-location'),
-                controller: _location,
+              DropdownButtonFormField<String>(
+                key: const Key('ticket-location-catalog'),
+                initialValue: _locationSelection,
                 decoration: const InputDecoration(
                   labelText: 'Ubicación / zona *',
                   prefixIcon: Icon(Icons.location_on_outlined),
                 ),
+                items: [
+                  for (final item in _locations)
+                    DropdownMenuItem(value: item.id, child: Text(item.name)),
+                  const DropdownMenuItem(value: _other, child: Text('Otra')),
+                ],
+                onChanged: _loadingCatalogs
+                    ? null
+                    : (value) => setState(() => _locationSelection = value),
               ),
+              if (_locationSelection == _other) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('ticket-location-other'),
+                  controller: _location,
+                  decoration: const InputDecoration(
+                    labelText: 'Ubicación personalizada *',
+                  ),
+                ),
+                const _CustomValueWarning(),
+              ],
               const SizedBox(height: 12),
-              TextField(
-                controller: _equipment,
+              DropdownButtonFormField<String?>(
+                key: const Key('ticket-equipment-catalog'),
+                initialValue: _equipmentSelection,
                 decoration: const InputDecoration(
                   labelText: 'Equipo o máquina (opcional)',
                   prefixIcon: Icon(Icons.precision_manufacturing_outlined),
                 ),
+                items: [
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('Sin equipo'),
+                  ),
+                  for (final item in _equipmentItems)
+                    DropdownMenuItem(value: item.id, child: Text(item.name)),
+                  const DropdownMenuItem(value: _other, child: Text('Otra')),
+                ],
+                onChanged: _loadingCatalogs
+                    ? null
+                    : (value) => setState(() => _equipmentSelection = value),
               ),
+              if (_equipmentSelection == _other) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('ticket-equipment-other'),
+                  controller: _equipment,
+                  decoration: const InputDecoration(
+                    labelText: 'Equipo personalizado *',
+                  ),
+                ),
+                const _CustomValueWarning(),
+              ],
               const SizedBox(height: 12),
               DropdownButtonFormField<TicketPriority>(
                 initialValue: _priority,
@@ -298,6 +383,32 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
             ],
           ),
         ),
+      ),
+    ),
+  );
+}
+
+class _CustomValueWarning extends StatelessWidget {
+  const _CustomValueWarning();
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: Theme.of(context).colorScheme.errorContainer,
+    child: const Padding(
+      padding: EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Usa “Otra” únicamente cuando ninguna opción existente aplique. '
+              'Escribir valores manuales sin coordinación con el administrador puede producir '
+              'inconsistencias y afectar el análisis estadístico futuro del histórico de solicitudes.',
+            ),
+          ),
+        ],
       ),
     ),
   );

@@ -8,6 +8,7 @@ class TicketUpdate {
     required this.type,
     required this.content,
     required this.createdAt,
+    this.actorUserId,
   });
   final String id;
   final String ticketId;
@@ -15,4 +16,5 @@ class TicketUpdate {
   final TicketUpdateType type;
   final String content;
   final DateTime createdAt;
+  final String? actorUserId;
 }

@@ -4,6 +4,8 @@ import '../core/notifications/notification_service.dart';
 import '../core/session/local_session.dart';
 import '../features/maintenance/data/maintenance_repository.dart';
 import '../features/maintenance/domain/ticket_enums.dart';
+import '../features/organization/data/organization_repository.dart';
+import '../features/organization/domain/organization_models.dart';
 
 final notificationServiceProvider = Provider<NotificationGateway>(
   (ref) => throw StateError('Falta inicializar notificaciones.'),
@@ -11,20 +13,40 @@ final notificationServiceProvider = Provider<NotificationGateway>(
 final maintenanceRepositoryProvider = Provider<MaintenanceRepository>(
   (ref) => throw StateError('Falta inicializar el repositorio.'),
 );
+final organizationRepositoryProvider = Provider<OrganizationRepository>(
+  (ref) => throw StateError('Falta inicializar organizaciones.'),
+);
+final authenticationRepositoryProvider = Provider<AuthenticationRepository>(
+  (ref) => throw StateError('Falta inicializar autenticación.'),
+);
 final localSessionProvider = Provider<LocalSession>(
   (ref) => throw StateError('Falta inicializar la sesión.'),
 );
 
 class SessionState {
   const SessionState({
-    required this.loggedIn,
-    required this.accountRole,
-    required this.effectiveRole,
+    required this.user,
+    required this.companyId,
+    required this.areaId,
   });
-  final bool loggedIn;
-  final AccountRole? accountRole;
-  final AppRole effectiveRole;
-  bool get isAdministrator => accountRole == AccountRole.administrator;
+
+  final AppUser? user;
+  final String? companyId;
+  final String? areaId;
+  bool get loggedIn => user != null;
+  bool get isSuperAdmin => user?.isSuperAdmin ?? false;
+  AppRole get effectiveRole => user?.operationalRole ?? AppRole.production;
+  AccessContext? get accessContext => user == null
+      ? null
+      : AccessContext(
+          userId: user!.id,
+          privilege: user!.privilege,
+          operationalRole: effectiveRole,
+          companyId: companyId,
+          areaId: areaId,
+          allowedAreaIds: user!.areaIds,
+          allCompanyAreas: user!.areaAccessMode == AreaAccessMode.all,
+        );
 }
 
 class SessionController extends Notifier<SessionState> {
@@ -32,20 +54,42 @@ class SessionController extends Notifier<SessionState> {
   SessionState build() => _snapshot(ref.read(localSessionProvider));
 
   SessionState _snapshot(LocalSession local) => SessionState(
-    loggedIn: local.loggedIn,
-    accountRole: local.accountRole,
-    effectiveRole: local.effectiveRole,
+    user: local.user,
+    companyId: local.user?.isSuperAdmin == true
+        ? local.selectedCompanyId
+        : local.user?.companyId,
+    areaId: local.selectedAreaId,
   );
 
-  Future<void> login(AccountRole role) async {
+  Future<void> login(String username, String password) async {
+    final user = await ref
+        .read(authenticationRepositoryProvider)
+        .authenticate(username.trim(), password);
     final local = ref.read(localSessionProvider);
-    await local.login(role);
+    await local.start(user);
     state = _snapshot(local);
   }
 
-  Future<void> setEffectiveRole(AppRole role) async {
+  Future<void> bootstrap({
+    required String username,
+    required String displayName,
+    required String password,
+  }) async {
+    final user = await ref
+        .read(authenticationRepositoryProvider)
+        .bootstrapOwner(
+          username: username,
+          displayName: displayName,
+          password: password,
+        );
     final local = ref.read(localSessionProvider);
-    await local.setEffectiveRole(role);
+    await local.start(user);
+    state = _snapshot(local);
+  }
+
+  Future<void> selectArea(String companyId, String areaId) async {
+    final local = ref.read(localSessionProvider);
+    await local.selectArea(companyId: companyId, areaId: areaId);
     state = _snapshot(local);
   }
 

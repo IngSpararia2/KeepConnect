@@ -10,6 +10,9 @@ class AppNotification {
     required this.recipient,
     required this.read,
     required this.eventType,
+    this.companyId,
+    this.areaId,
+    this.recipientUserId,
   });
   final String id;
   final String ticketId;
@@ -19,4 +22,7 @@ class AppNotification {
   final AppRole recipient;
   final bool read;
   final String eventType;
+  final String? companyId;
+  final String? areaId;
+  final String? recipientUserId;
 }

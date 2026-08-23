@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../app/app_providers.dart';
 import '../../../config/app_config.dart';
 import '../application/maintenance_providers.dart';
-import '../domain/ticket_enums.dart';
 import 'maintenance_dashboard_screen.dart';
 import 'notifications_screen.dart';
 import 'ticket_list_screen.dart';
@@ -30,10 +29,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_titles[_index]),
-            Text(
-              'Área Planta · Vista ${session.effectiveRole.label}',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
+            _ContextLabel(session: session),
           ],
         ),
         actions: [
@@ -41,6 +37,10 @@ class _AppShellState extends ConsumerState<AppShell> {
             key: const Key('session-menu'),
             tooltip: 'Cuenta y áreas',
             onSelected: (action) async {
+              if (action == _SessionAction.admin) {
+                context.push('/admin');
+                return;
+              }
               if (action == _SessionAction.templates) {
                 context.push('/form-templates');
                 return;
@@ -53,7 +53,15 @@ class _AppShellState extends ConsumerState<AppShell> {
               if (context.mounted) context.go('/login');
             },
             itemBuilder: (_) => [
-              if (session.isAdministrator)
+              if (session.isSuperAdmin)
+                const PopupMenuItem(
+                  value: _SessionAction.admin,
+                  child: ListTile(
+                    leading: Icon(Icons.admin_panel_settings_outlined),
+                    title: Text('Administración'),
+                  ),
+                ),
+              if (session.isSuperAdmin)
                 const PopupMenuItem(
                   value: _SessionAction.templates,
                   child: ListTile(
@@ -82,11 +90,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
       body: Column(
         children: [
-          if (session.isAdministrator)
-            _TestModeSelector(
-              role: session.effectiveRole,
-              onSelected: ref.read(sessionProvider.notifier).setEffectiveRole,
-            ),
           Expanded(
             child: IndexedStack(
               index: _index,
@@ -135,46 +138,27 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-enum _SessionAction { templates, areas, logout }
+enum _SessionAction { admin, templates, areas, logout }
 
-class _TestModeSelector extends StatelessWidget {
-  const _TestModeSelector({required this.role, required this.onSelected});
+class _ContextLabel extends ConsumerWidget {
+  const _ContextLabel({required this.session});
+  final SessionState session;
 
-  final AppRole role;
-  final ValueChanged<AppRole> onSelected;
+  Future<String> _load(WidgetRef ref) async {
+    final repository = ref.read(organizationRepositoryProvider);
+    final company = await repository.getCompany(session.companyId!);
+    final area = await repository.getArea(session.areaId!);
+    return '${company?.name ?? 'Empresa'} · ${area?.name ?? 'Área'}';
+  }
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: .4),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-      child: Row(
-        children: [
-          const Icon(Icons.science_outlined, size: 19),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Modo de prueba',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          PopupMenuButton<AppRole>(
-            key: const Key('test-mode-menu'),
-            tooltip: 'Cambiar vista operativa',
-            initialValue: role,
-            onSelected: onSelected,
-            itemBuilder: (_) => AppRole.values
-                .map(
-                  (value) => PopupMenuItem(
-                    value: value,
-                    child: Text('Vista ${value.label}'),
-                  ),
-                )
-                .toList(),
-            child: Chip(label: Text('Vista ${role.label}')),
-          ),
-        ],
-      ),
-    ),
+  Widget build(BuildContext context, WidgetRef ref) => FutureBuilder<String>(
+    future: _load(ref),
+    builder: (context, snapshot) {
+      return Text(
+        '${snapshot.data ?? 'Empresa · Área'} · ${session.effectiveRole.label}',
+        style: Theme.of(context).textTheme.labelMedium,
+      );
+    },
   );
 }

@@ -8,11 +8,15 @@ class FormTemplate {
     required this.createdAt,
     required this.updatedAt,
     this.description,
+    this.companyId = 'legacy-company',
+    this.areaId = 'legacy-area-plant',
   });
 
   final String id;
   final String name;
   final String? description;
+  final String companyId;
+  final String? areaId;
   final List<TicketQuestion> questions;
   final DateTime createdAt;
   final DateTime updatedAt;

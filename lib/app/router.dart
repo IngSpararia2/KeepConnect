@@ -11,6 +11,8 @@ import '../features/maintenance/presentation/form_template_editor_screen.dart';
 import '../features/maintenance/presentation/form_template_list_screen.dart';
 import '../features/maintenance/presentation/login_screen.dart';
 import '../features/maintenance/presentation/ticket_detail_screen.dart';
+import '../features/organization/domain/organization_models.dart';
+import '../features/organization/presentation/admin_screen.dart';
 import 'app_providers.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -27,7 +29,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (location == '/splash') return null;
       if (!session.loggedIn) return location == '/login' ? null : '/login';
       if (location == '/login') return '/areas';
-      if (location.startsWith('/form-templates') && !session.isAdministrator) {
+      if (location.startsWith('/admin') && !session.isSuperAdmin) {
+        return '/areas';
+      }
+      if (location.startsWith('/form-templates') && !session.isSuperAdmin) {
+        return '/areas';
+      }
+      final requiresContext =
+          location == '/home' ||
+          location.startsWith('/tickets') ||
+          location.startsWith('/form-templates');
+      if (requiresContext &&
+          (session.companyId == null || session.areaId == null)) {
         return '/areas';
       }
       return null;
@@ -37,6 +50,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/areas', builder: (_, _) => const AreaSelectionScreen()),
       GoRoute(path: '/home', builder: (_, _) => const AppShell()),
+      GoRoute(path: '/admin', builder: (_, _) => const AdminScreen()),
+      GoRoute(
+        path: '/admin/companies/:companyId',
+        builder: (_, state) =>
+            CompanyDetailScreen(companyId: state.pathParameters['companyId']!),
+      ),
+      GoRoute(
+        path: '/admin/companies/:companyId/areas/:areaId/catalog/:kind',
+        builder: (_, state) => CatalogAdminScreen(
+          companyId: state.pathParameters['companyId']!,
+          areaId: state.pathParameters['areaId']!,
+          kind: CatalogKind.values.byName(state.pathParameters['kind']!),
+        ),
+      ),
       GoRoute(
         path: '/form-templates',
         builder: (_, _) => const FormTemplateListScreen(),
