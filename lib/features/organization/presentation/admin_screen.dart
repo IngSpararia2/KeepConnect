@@ -524,11 +524,15 @@ class _NameDialogState extends State<_NameDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
     title: Text(widget.title),
-    content: TextField(
-      key: widget.fieldKey,
-      controller: _controller,
-      decoration: InputDecoration(labelText: 'Nombre', errorText: _error),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: TextField(
+        key: widget.fieldKey,
+        controller: _controller,
+        decoration: InputDecoration(labelText: 'Nombre', errorText: _error),
+      ),
     ),
     actions: [
       TextButton(
@@ -629,110 +633,139 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.user == null ? 'Nuevo usuario' : 'Editar usuario'),
-    content: SizedBox(
-      width: 540,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    key: const Key('user-display-name'),
-                    controller: _name,
-                    decoration: const InputDecoration(labelText: 'Nombre'),
-                  ),
-                  TextField(
-                    key: const Key('user-username'),
-                    controller: _username,
-                    decoration: const InputDecoration(
-                      labelText: 'Usuario o correo',
-                    ),
-                  ),
-                  if (widget.user == null)
+  Widget build(BuildContext context) {
+    final availableHeight =
+        MediaQuery.sizeOf(context).height -
+        MediaQuery.viewInsetsOf(context).vertical;
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      title: Text(widget.user == null ? 'Nuevo usuario' : 'Editar usuario'),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 540,
+          maxHeight: availableHeight * .58,
+        ),
+        child: _loading
+            ? const SizedBox(
+                height: 80,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     TextField(
-                      key: const Key('user-password'),
-                      controller: _password,
-                      obscureText: true,
+                      key: const Key('user-display-name'),
+                      controller: _name,
+                      decoration: const InputDecoration(labelText: 'Nombre'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('user-username'),
+                      controller: _username,
                       decoration: const InputDecoration(
-                        labelText: 'Contraseña inicial',
+                        labelText: 'Usuario o correo',
                       ),
                     ),
-                  DropdownButtonFormField<String>(
-                    initialValue: _companyId,
-                    decoration: const InputDecoration(labelText: 'Empresa'),
-                    items: _companies
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) async {
-                      _companyId = value;
-                      await _loadAreas();
-                      if (mounted) {
-                        setState(() {});
-                      }
-                    },
-                  ),
-                  DropdownButtonFormField<AppRole>(
-                    initialValue: _role,
-                    decoration: const InputDecoration(
-                      labelText: 'Rol operativo',
-                    ),
-                    items: AppRole.values
-                        .map(
-                          (r) =>
-                              DropdownMenuItem(value: r, child: Text(r.label)),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _role = value ?? _role),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Acceso a todas las áreas'),
-                    value: _mode == AreaAccessMode.all,
-                    onChanged: (all) => setState(
-                      () => _mode = all
-                          ? AreaAccessMode.all
-                          : AreaAccessMode.selected,
-                    ),
-                  ),
-                  if (_mode == AreaAccessMode.selected)
-                    for (final area in _areas)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(area.name),
-                        value: _selectedAreas.contains(area.id),
-                        onChanged: (selected) => setState(() {
-                          if (selected == true) {
-                            _selectedAreas.add(area.id);
-                          } else {
-                            _selectedAreas.remove(area.id);
-                          }
-                        }),
+                    if (widget.user == null) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('user-password'),
+                        controller: _password,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Contraseña inicial',
+                        ),
                       ),
-                ],
+                    ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _companyId,
+                      decoration: const InputDecoration(labelText: 'Empresa'),
+                      items: _companies
+                          .map(
+                            (c) => DropdownMenuItem(
+                              value: c.id,
+                              child: Text(c.name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) async {
+                        _companyId = value;
+                        await _loadAreas();
+                        if (mounted) {
+                          setState(() {});
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<AppRole>(
+                      initialValue: _role,
+                      decoration: const InputDecoration(
+                        labelText: 'Rol operativo',
+                      ),
+                      items: AppRole.values
+                          .map(
+                            (r) => DropdownMenuItem(
+                              value: r,
+                              child: Text(r.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => _role = value ?? _role),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Acceso a todas las áreas'),
+                      value: _mode == AreaAccessMode.all,
+                      onChanged: (all) => setState(
+                        () => _mode = all
+                            ? AreaAccessMode.all
+                            : AreaAccessMode.selected,
+                      ),
+                    ),
+                    if (_mode == AreaAccessMode.selected) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Áreas permitidas',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      for (final area in _areas)
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(area.name),
+                          value: _selectedAreas.contains(area.id),
+                          onChanged: (selected) => setState(() {
+                            if (selected == true) {
+                              _selectedAreas.add(area.id);
+                            } else {
+                              _selectedAreas.remove(area.id);
+                            }
+                          }),
+                        ),
+                    ],
+                  ],
+                ),
               ),
-            ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
       ),
-      FilledButton(
-        key: const Key('save-user'),
-        onPressed: _loading ? null : _save,
-        child: const Text('Guardar'),
-      ),
-    ],
-  );
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          key: const Key('save-user'),
+          onPressed: _loading ? null : _save,
+          child: const Text('Guardar'),
+        ),
+      ],
+    );
+  }
 }
 
 class _PasswordDialog extends StatefulWidget {
@@ -763,24 +796,33 @@ class _PasswordDialogState extends State<_PasswordDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
     title: Text(widget.title),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: _password,
-          obscureText: true,
-          decoration: InputDecoration(
-            labelText: 'Nueva contraseña',
-            errorText: _error,
-          ),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Nueva contraseña',
+                errorText: _error,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _confirmation,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Confirmar contraseña',
+              ),
+            ),
+          ],
         ),
-        TextField(
-          controller: _confirmation,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Confirmar contraseña'),
-        ),
-      ],
+      ),
     ),
     actions: [
       TextButton(

@@ -123,7 +123,7 @@ void main() {
     );
   });
 
-  test('Planta añade una pregunta sin destruir las anteriores', () async {
+  test('Solicitante añade una pregunta sin destruir las anteriores', () async {
     final created = await repository.createTicket(
       const CreateTicketInput(
         title: 'Falla',

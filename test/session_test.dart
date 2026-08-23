@@ -42,6 +42,11 @@ void main() {
     expect(store.values.keys.any((key) => key.contains('password')), isFalse);
   });
 
+  test('conserva production como identificador persistido de Solicitante', () {
+    expect(AppRole.production.name, 'production');
+    expect(AppRole.production.label, 'Solicitante');
+  });
+
   test('rechaza un área fuera del permiso normalizado', () async {
     final session = await LocalSession.load(store: MemorySessionStore());
     await session.start(user());

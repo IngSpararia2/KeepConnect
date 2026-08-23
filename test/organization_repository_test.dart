@@ -248,6 +248,14 @@ void main() {
     );
     expect(await maintenance.watchTicket(ticketA2.ticketId).first, isNull);
     expect(await maintenance.watchTicket(ticketB.ticketId).first, isNull);
+    expect(await maintenance.watchUpdates(ticketA2.ticketId).first, isEmpty);
+    expect(await maintenance.watchEvents(ticketA2.ticketId).first, isEmpty);
+    expect(
+      (await maintenance.watchNotifications(AppRole.maintenance).first).map(
+        (item) => item.ticketId,
+      ),
+      [ticketA.ticketId],
+    );
     // No se cierra el repositorio aquí porque comparte la conexión del fixture.
   });
 

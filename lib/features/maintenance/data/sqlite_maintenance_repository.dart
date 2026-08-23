@@ -80,7 +80,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     final scope = _requireScope();
     final actor = _actualActor(AppRole.production);
     if (actor != AppRole.production) {
-      throw StateError('Solo Producción puede crear solicitudes.');
+      throw StateError('Solo Solicitante puede crear solicitudes.');
     }
     final errors = input.validate();
     if (errors.isNotEmpty) throw ArgumentError(errors.join('\n'));
@@ -151,7 +151,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
         id,
         actor,
         TicketEventType.created,
-        'Planta creó la solicitud $code.',
+        'Solicitante creó la solicitud $code.',
         now,
       );
       pending = _insertNotification(
@@ -316,7 +316,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
         ticketId,
         actor,
         TicketEventType.questionAdded,
-        'Planta añadió la pregunta: ${question.prompt}',
+        'Solicitante añadió la pregunta: ${question.prompt}',
         now,
       );
       pending = _insertNotification(
@@ -564,7 +564,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
       .isEmpty;
 
   List<TicketUpdate> _readUpdates(String ticketId) {
-    _requireTicket(ticketId);
+    if (_readTicket(ticketId) == null) return const [];
     return _db
         .select(
           'SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at',
@@ -585,7 +585,7 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   }
 
   List<TicketEvent> _readEvents(String ticketId) {
-    _requireTicket(ticketId);
+    if (_readTicket(ticketId) == null) return const [];
     return _db
         .select(
           'SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at DESC',

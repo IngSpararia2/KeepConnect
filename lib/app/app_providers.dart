@@ -34,6 +34,8 @@ class SessionState {
   final String? companyId;
   final String? areaId;
   bool get loggedIn => user != null;
+  bool get hasSelectedContext =>
+      loggedIn && companyId != null && areaId != null;
   bool get isSuperAdmin => user?.isSuperAdmin ?? false;
   AppRole get effectiveRole => user?.operationalRole ?? AppRole.production;
   AccessContext? get accessContext => user == null

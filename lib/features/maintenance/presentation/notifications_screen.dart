@@ -12,6 +12,8 @@ class NotificationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => ref
       .watch(notificationsProvider)
       .when(
+        skipLoadingOnRefresh: false,
+        skipLoadingOnReload: false,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('$error')),
         data: (items) => items.isEmpty

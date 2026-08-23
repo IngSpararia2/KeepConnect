@@ -49,7 +49,7 @@ enum AppRole {
   production,
   maintenance;
 
-  String get label => this == production ? 'Planta' : 'Mantenimiento';
+  String get label => this == production ? 'Solicitante' : 'Mantenimiento';
   AppRole get other => this == production ? maintenance : production;
 }
 

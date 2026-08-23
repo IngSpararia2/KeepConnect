@@ -20,6 +20,8 @@ class _TicketListScreenState extends ConsumerState<TicketListScreen> {
   Widget build(BuildContext context) => ref
       .watch(ticketsProvider)
       .when(
+        skipLoadingOnRefresh: false,
+        skipLoadingOnReload: false,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('$error')),
         data: (tickets) {

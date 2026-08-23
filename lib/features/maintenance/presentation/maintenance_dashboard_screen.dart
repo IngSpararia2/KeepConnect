@@ -14,6 +14,8 @@ class MaintenanceDashboardScreen extends ConsumerWidget {
     return ref
         .watch(ticketsProvider)
         .when(
+          skipLoadingOnRefresh: false,
+          skipLoadingOnReload: false,
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) =>
               Center(child: Text('No fue posible cargar: $error')),

@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gestion_interna/app/app_providers.dart';
 import 'package:gestion_interna/app/router.dart';
 import 'package:gestion_interna/core/database/database_service.dart';
+import 'package:gestion_interna/core/notifications/notification_service.dart';
 import 'package:gestion_interna/core/session/local_session.dart';
+import 'package:gestion_interna/features/maintenance/data/sqlite_maintenance_repository.dart';
 import 'package:gestion_interna/features/maintenance/domain/ticket_enums.dart';
 import 'package:gestion_interna/features/organization/data/password_hasher.dart';
 import 'package:gestion_interna/features/organization/data/sqlite_organization_repository.dart';
@@ -98,6 +100,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('logout-from-areas')), findsOneWidget);
     expect(find.text('Administración'), findsNothing);
+  });
+
+  testWidgets('logout desde inicio llega al login sin excepciones', (
+    tester,
+  ) async {
+    final database = DatabaseService.inMemory();
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    final now = DateTime(2026);
+    await session.start(
+      AppUser(
+        id: 'regular',
+        username: 'regular',
+        displayName: 'Regular',
+        privilege: PlatformPrivilege.user,
+        companyId: DatabaseService.legacyCompanyId,
+        operationalRole: AppRole.production,
+        active: true,
+        areaAccessMode: AreaAccessMode.selected,
+        areaIds: const {DatabaseService.legacyPlantAreaId},
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await session.selectArea(
+      companyId: DatabaseService.legacyCompanyId,
+      areaId: DatabaseService.legacyPlantAreaId,
+    );
+    final organizations = SqliteOrganizationRepository(
+      database,
+      context: () => session.accessContext,
+      hasher: const PasswordHasher(iterations: 10000),
+    );
+    final maintenance = SqliteMaintenanceRepository(
+      database,
+      notificationGateway: const NoopNotificationGateway(),
+      context: () => session.accessContext,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        localSessionProvider.overrideWithValue(session),
+        organizationRepositoryProvider.overrideWithValue(organizations),
+        authenticationRepositoryProvider.overrideWithValue(organizations),
+        maintenanceRepositoryProvider.overrideWithValue(maintenance),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await maintenance.close();
+      await organizations.close();
+      database.close();
+    });
+    final router = container.read(appRouterProvider)..go('/home');
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('session-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cerrar sesión'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('app-logo-login')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 

@@ -22,7 +22,17 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
-    final unread = ref.watch(unreadNotificationsProvider).value ?? 0;
+    if (!session.hasSelectedContext) {
+      return const Scaffold(body: SizedBox.shrink());
+    }
+    final unreadState = ref.watch(unreadNotificationsProvider);
+    final unread = unreadState.when(
+      skipLoadingOnRefresh: false,
+      skipLoadingOnReload: false,
+      data: (value) => value,
+      loading: () => 0,
+      error: (_, _) => 0,
+    );
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -50,7 +60,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                 return;
               }
               await ref.read(sessionProvider.notifier).logout();
-              if (context.mounted) context.go('/login');
             },
             itemBuilder: (_) => [
               if (session.isSuperAdmin)
@@ -145,6 +154,7 @@ class _ContextLabel extends ConsumerWidget {
   final SessionState session;
 
   Future<String> _load(WidgetRef ref) async {
+    if (!session.hasSelectedContext) return 'Empresa · Área';
     final repository = ref.read(organizationRepositoryProvider);
     final company = await repository.getCompany(session.companyId!);
     final area = await repository.getArea(session.areaId!);
@@ -152,13 +162,16 @@ class _ContextLabel extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => FutureBuilder<String>(
-    future: _load(ref),
-    builder: (context, snapshot) {
-      return Text(
-        '${snapshot.data ?? 'Empresa · Área'} · ${session.effectiveRole.label}',
-        style: Theme.of(context).textTheme.labelMedium,
-      );
-    },
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!session.hasSelectedContext) return const SizedBox.shrink();
+    return FutureBuilder<String>(
+      future: _load(ref),
+      builder: (context, snapshot) {
+        return Text(
+          '${snapshot.data ?? 'Empresa · Área'} · ${session.effectiveRole.label}',
+          style: Theme.of(context).textTheme.labelMedium,
+        );
+      },
+    );
+  }
 }

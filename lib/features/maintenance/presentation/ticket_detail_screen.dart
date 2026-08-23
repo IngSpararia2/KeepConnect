@@ -21,6 +21,8 @@ class TicketDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => ref
       .watch(ticketProvider(ticketId))
       .when(
+        skipLoadingOnRefresh: false,
+        skipLoadingOnReload: false,
         loading: () =>
             const Scaffold(body: Center(child: CircularProgressIndicator())),
         error: (error, _) => Scaffold(
@@ -513,34 +515,46 @@ class _AddUpdateDialogState extends State<_AddUpdateDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
     title: const Text('Añadir actualización'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        DropdownButtonFormField<TicketUpdateType>(
-          key: const Key('update-type'),
-          initialValue: _type,
-          items:
-              (widget.role == AppRole.production
-                      ? [TicketUpdateType.note, TicketUpdateType.instruction]
-                      : [TicketUpdateType.observation, TicketUpdateType.action])
-                  .map(
-                    (value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(value.label),
-                    ),
-                  )
-                  .toList(),
-          onChanged: (value) => setState(() => _type = value ?? _type),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<TicketUpdateType>(
+              key: const Key('update-type'),
+              initialValue: _type,
+              items:
+                  (widget.role == AppRole.production
+                          ? [
+                              TicketUpdateType.note,
+                              TicketUpdateType.instruction,
+                            ]
+                          : [
+                              TicketUpdateType.observation,
+                              TicketUpdateType.action,
+                            ])
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                      )
+                      .toList(),
+              onChanged: (value) => setState(() => _type = value ?? _type),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('update-content'),
+              controller: _content,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Contenido'),
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('update-content'),
-          controller: _content,
-          maxLines: 4,
-          decoration: const InputDecoration(labelText: 'Contenido'),
-        ),
-      ],
+      ),
     ),
     actions: [
       TextButton(
