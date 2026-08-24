@@ -23,8 +23,14 @@ class ThemeModeController extends Notifier<ThemeMode> {
   }
 
   Future<void> _load() async {
-    final stored = await ref.read(themeModeStoreProvider).read();
-    if (!_changedByUser) state = themeModeFromStorage(stored);
+    try {
+      final stored = await ref.read(themeModeStoreProvider).read();
+      if (!_changedByUser) state = themeModeFromStorage(stored);
+    } catch (_) {
+      // SharedPreferences no tiene plataforma nativa en algunos widget tests.
+      // El modo automático es también el fallback seguro de producción.
+      if (!_changedByUser) state = ThemeMode.system;
+    }
   }
 
   Future<void> setMode(ThemeMode mode) async {
