@@ -37,6 +37,8 @@ class _GestionInternaAppState extends ConsumerState<GestionInternaApp> {
     title: AppConfig.appName,
     debugShowCheckedModeBanner: false,
     theme: AppTheme.light(),
+    darkTheme: AppTheme.dark(),
+    themeMode: ref.watch(themeModeProvider),
     routerConfig: ref.watch(appRouterProvider),
   );
 }

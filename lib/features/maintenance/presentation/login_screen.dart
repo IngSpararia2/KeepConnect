@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_providers.dart';
+import '../../../app/theme/theme_mode_selector.dart';
 import '../../../config/app_config.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -89,137 +90,147 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: _loadingBootstrap
-                    ? const SizedBox(
-                        height: 300,
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Image.asset(
-                            'assets/branding/app_logo.png',
-                            key: const Key('app-logo-login'),
-                            height: 112,
-                            fit: BoxFit.contain,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _bootstrap
-                                ? 'Crear cuenta propietaria'
-                                : 'Gestión Interna',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            _bootstrap
-                                ? 'Configuración segura de primer uso. Este acceso dejará de estar disponible al crear la cuenta.'
-                                : 'Solicitudes y trazabilidad de mantenimiento',
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 24),
-                          if (_bootstrap) ...[
-                            TextField(
-                              key: const Key('bootstrap-display-name'),
-                              controller: _displayName,
-                              decoration: const InputDecoration(
-                                labelText: 'Nombre del propietario',
-                                prefixIcon: Icon(Icons.person_outline),
+      child: Stack(
+        children: [
+          Positioned(top: 4, right: 4, child: ThemeModeSelector()),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: _loadingBootstrap
+                        ? const SizedBox(
+                            height: 300,
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Image.asset(
+                                'assets/branding/app_logo.png',
+                                key: const Key('app-logo-login'),
+                                height: 112,
+                                fit: BoxFit.contain,
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          TextField(
-                            key: const Key('login-user'),
-                            controller: _user,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'Usuario o correo',
-                              prefixIcon: Icon(Icons.alternate_email),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            key: const Key('login-password'),
-                            controller: _password,
-                            obscureText: _obscurePassword,
-                            decoration: InputDecoration(
-                              labelText: 'Contraseña',
-                              prefixIcon: const Icon(Icons.lock_outline),
-                              suffixIcon: IconButton(
-                                onPressed: () => setState(
-                                  () => _obscurePassword = !_obscurePassword,
+                              const SizedBox(height: 12),
+                              Text(
+                                _bootstrap
+                                    ? 'Crear cuenta propietaria'
+                                    : 'Gestión Interna',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.headlineSmall
+                                    ?.copyWith(fontWeight: FontWeight.w900),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                _bootstrap
+                                    ? 'Configuración segura de primer uso. Este acceso dejará de estar disponible al crear la cuenta.'
+                                    : 'Solicitudes y trazabilidad de mantenimiento',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 24),
+                              if (_bootstrap) ...[
+                                TextField(
+                                  key: const Key('bootstrap-display-name'),
+                                  controller: _displayName,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nombre del propietario',
+                                    prefixIcon: Icon(Icons.person_outline),
+                                  ),
                                 ),
+                                const SizedBox(height: 12),
+                              ],
+                              TextField(
+                                key: const Key('login-user'),
+                                controller: _user,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: const InputDecoration(
+                                  labelText: 'Usuario o correo',
+                                  prefixIcon: Icon(Icons.alternate_email),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                key: const Key('login-password'),
+                                controller: _password,
+                                obscureText: _obscurePassword,
+                                decoration: InputDecoration(
+                                  labelText: 'Contraseña',
+                                  prefixIcon: const Icon(Icons.lock_outline),
+                                  suffixIcon: IconButton(
+                                    onPressed: () => setState(
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
+                                    ),
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (_bootstrap) ...[
+                                const SizedBox(height: 12),
+                                TextField(
+                                  key: const Key('bootstrap-confirm-password'),
+                                  controller: _confirmation,
+                                  obscureText: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Confirmar contraseña',
+                                    prefixIcon: Icon(Icons.lock_reset_outlined),
+                                  ),
+                                ),
+                              ],
+                              if (_error != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Text(
+                                    _error!,
+                                    key: const Key('login-error'),
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 20),
+                              FilledButton.icon(
+                                key: Key(
+                                  _bootstrap
+                                      ? 'bootstrap-submit'
+                                      : 'login-submit',
+                                ),
+                                onPressed: _submitting ? null : _submit,
                                 icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
+                                  _bootstrap
+                                      ? Icons.admin_panel_settings_outlined
+                                      : Icons.login_rounded,
+                                ),
+                                label: Text(
+                                  _bootstrap
+                                      ? 'Crear superadministrador'
+                                      : 'Iniciar sesión',
                                 ),
                               ),
-                            ),
-                          ),
-                          if (_bootstrap) ...[
-                            const SizedBox(height: 12),
-                            TextField(
-                              key: const Key('bootstrap-confirm-password'),
-                              controller: _confirmation,
-                              obscureText: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Confirmar contraseña',
-                                prefixIcon: Icon(Icons.lock_reset_outlined),
+                              const SizedBox(height: 24),
+                              const Text(
+                                AppConfig.credits,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 11),
                               ),
-                            ),
-                          ],
-                          if (_error != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Text(
-                                _error!,
-                                key: const Key('login-error'),
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                            ),
-                          const SizedBox(height: 20),
-                          FilledButton.icon(
-                            key: Key(
-                              _bootstrap ? 'bootstrap-submit' : 'login-submit',
-                            ),
-                            onPressed: _submitting ? null : _submit,
-                            icon: Icon(
-                              _bootstrap
-                                  ? Icons.admin_panel_settings_outlined
-                                  : Icons.login_rounded,
-                            ),
-                            label: Text(
-                              _bootstrap
-                                  ? 'Crear superadministrador'
-                                  : 'Iniciar sesión',
-                            ),
+                            ],
                           ),
-                          const SizedBox(height: 24),
-                          const Text(
-                            AppConfig.credits,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ],
-                      ),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     ),
   );

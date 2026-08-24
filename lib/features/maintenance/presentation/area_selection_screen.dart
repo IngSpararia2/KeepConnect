@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_providers.dart';
+import '../../../app/theme/theme_mode_selector.dart';
 import '../../../config/app_config.dart';
 import '../../organization/domain/organization_models.dart';
 
@@ -20,6 +21,7 @@ class AreaSelectionScreen extends ConsumerWidget {
               : 'Seleccionar área',
         ),
         actions: [
+          const ThemeModeSelector(),
           if (session.isSuperAdmin)
             IconButton(
               key: const Key('open-admin'),

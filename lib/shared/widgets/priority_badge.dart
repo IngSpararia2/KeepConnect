@@ -11,7 +11,7 @@ class PriorityBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (color, icon) = switch (priority) {
+    final (baseColor, icon) = switch (priority) {
       TicketPriority.low => (AppColors.success, Icons.arrow_downward_rounded),
       TicketPriority.medium => (AppColors.info, Icons.remove_rounded),
       TicketPriority.high => (AppColors.amber, Icons.arrow_upward_rounded),
@@ -20,6 +20,7 @@ class PriorityBadge extends StatelessWidget {
         Icons.warning_amber_rounded,
       ),
     };
+    final color = AppColors.semantic(baseColor, Theme.of(context).brightness);
     return Semantics(
       label: 'Prioridad ${priority.label}',
       child: Container(

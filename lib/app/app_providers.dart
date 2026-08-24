@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/notifications/notification_service.dart';
@@ -6,6 +7,36 @@ import '../features/maintenance/data/maintenance_repository.dart';
 import '../features/maintenance/domain/ticket_enums.dart';
 import '../features/organization/data/organization_repository.dart';
 import '../features/organization/domain/organization_models.dart';
+import 'theme/theme_mode_store.dart';
+
+final themeModeStoreProvider = Provider<ThemeModeStore>(
+  (ref) => SharedPreferencesThemeModeStore(),
+);
+
+class ThemeModeController extends Notifier<ThemeMode> {
+  var _changedByUser = false;
+
+  @override
+  ThemeMode build() {
+    Future<void>.microtask(_load);
+    return ThemeMode.system;
+  }
+
+  Future<void> _load() async {
+    final stored = await ref.read(themeModeStoreProvider).read();
+    if (!_changedByUser) state = themeModeFromStorage(stored);
+  }
+
+  Future<void> setMode(ThemeMode mode) async {
+    _changedByUser = true;
+    state = mode;
+    await ref.read(themeModeStoreProvider).write(mode.name);
+  }
+}
+
+final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(
+  ThemeModeController.new,
+);
 
 final notificationServiceProvider = Provider<NotificationGateway>(
   (ref) => throw StateError('Falta inicializar notificaciones.'),

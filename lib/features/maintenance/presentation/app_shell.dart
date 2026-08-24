@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_providers.dart';
+import '../../../app/theme/theme_mode_selector.dart';
 import '../../../config/app_config.dart';
 import '../application/maintenance_providers.dart';
 import 'maintenance_dashboard_screen.dart';
@@ -43,6 +44,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           ],
         ),
         actions: [
+          const ThemeModeSelector(),
           PopupMenuButton<_SessionAction>(
             key: const Key('session-menu'),
             tooltip: 'Cuenta y áreas',

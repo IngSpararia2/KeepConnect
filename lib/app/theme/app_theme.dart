@@ -6,6 +6,18 @@ abstract final class AppColors {
   static const danger = Color(0xFFB42318);
   static const success = Color(0xFF247A52);
   static const info = Color(0xFF2563A6);
+
+  static Color semantic(Color color, Brightness brightness) {
+    if (brightness == Brightness.light) return color;
+    return switch (color) {
+      success => Color(0xFF72D7A3),
+      info => Color(0xFF91C9FF),
+      amber => Color(0xFFFFD66E),
+      danger => Color(0xFFFFB4AB),
+      primary => Color(0xFF8FC8FF),
+      _ => color,
+    };
+  }
 }
 
 abstract final class AppTheme {
@@ -48,7 +60,7 @@ abstract final class AppTheme {
         color: scheme.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFFE1E7EF)),
+          side: BorderSide(color: scheme.outlineVariant),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(

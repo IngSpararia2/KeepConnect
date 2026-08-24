@@ -10,7 +10,7 @@ class StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (color, icon) = switch (status) {
+    final (baseColor, icon) = switch (status) {
       TicketStatus.pending => (AppColors.amber, Icons.schedule_rounded),
       TicketStatus.acknowledged => (
         AppColors.info,
@@ -19,6 +19,7 @@ class StatusBadge extends StatelessWidget {
       TicketStatus.inProgress => (AppColors.primary, Icons.handyman_outlined),
       TicketStatus.closed => (AppColors.success, Icons.task_alt_outlined),
     };
+    final color = AppColors.semantic(baseColor, Theme.of(context).brightness);
     return Semantics(
       label: 'Estado ${status.label}',
       child: Row(
