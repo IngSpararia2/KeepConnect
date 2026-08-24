@@ -11,7 +11,9 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $GradleWrapper = Join-Path $ProjectRoot 'android\gradlew.bat'
 $UseSafeBuildPath = $ProjectRoot -match '\s'
-$SafeBuildPath = Join-Path $env:SystemDrive 'KeepConnectApkBuild'
+# Cada ejecución recibe una unión propia. Si una compilación anterior se
+# interrumpe, su carpeta temporal ya no bloquea actualizaciones posteriores.
+$SafeBuildPath = Join-Path $env:SystemDrive "KeepConnectApkBuild-$([guid]::NewGuid().ToString('N'))"
 $RunRoot = $ProjectRoot
 $junctionCreated = $false
 $locationChanged = $false
@@ -40,10 +42,6 @@ try {
     # Flutter 3.44 puede fallar al invocar herramientas nativas desde rutas con espacios.
     # La unión temporal conserva el proyecto real y solo ofrece una ruta de compilación segura.
     if ($UseSafeBuildPath) {
-        if (Test-Path -LiteralPath $SafeBuildPath) {
-            throw "La ruta temporal $SafeBuildPath ya existe. Ciérrala o elimínala antes de ejecutar este script."
-        }
-
         $mklinkOutput = & cmd.exe /d /c "mklink /J `"$SafeBuildPath`" `"$ProjectRoot`"" 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "No se pudo crear la unión temporal para compilar: $($mklinkOutput -join ' ')"
