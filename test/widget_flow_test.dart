@@ -95,7 +95,7 @@ class _TicketHarness {
         username: 'produccion',
         displayName: 'Producción',
         privilege: PlatformPrivilege.user,
-        companyId: DatabaseService.legacyCompanyId,
+        companyIds: const {DatabaseService.legacyCompanyId},
         operationalRole: AppRole.production,
         active: true,
         areaAccessMode: AreaAccessMode.selected,

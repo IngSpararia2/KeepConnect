@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gestion_interna/core/database/database_service.dart';
+import 'package:gestion_interna/features/organization/data/sqlite_organization_repository.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
@@ -160,4 +161,65 @@ void main() {
       expect(database.database.select('SELECT * FROM app_users'), isEmpty);
     },
   );
+
+  test('migra v2 a v3 y conserva la empresa del usuario existente', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'keepconnect-v2-migration-',
+    );
+    final path = '${directory.path}${Platform.pathSeparator}v2.db';
+    final v2 = sqlite3.open(path);
+    const stamp = '2026-08-20T12:00:00.000Z';
+    v2.execute('''
+      PRAGMA user_version = 2;
+      CREATE TABLE companies (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE work_areas (
+        id TEXT PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+        name TEXT NOT NULL, active INTEGER NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE app_users (
+        id TEXT PRIMARY KEY, username TEXT NOT NULL, display_name TEXT NOT NULL,
+        privilege TEXT NOT NULL, company_id TEXT REFERENCES companies(id),
+        operational_role TEXT, active INTEGER NOT NULL,
+        area_access_mode TEXT NOT NULL, password_hash TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_seen_at TEXT
+      );
+      CREATE TABLE user_area_permissions (
+        user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        area_id TEXT NOT NULL REFERENCES work_areas(id) ON DELETE CASCADE,
+        PRIMARY KEY(user_id, area_id)
+      );
+      INSERT INTO companies VALUES ('company-a', 'Empresa A', 1, '$stamp', '$stamp');
+      INSERT INTO work_areas VALUES ('area-a', 'company-a', 'Planta', 1, '$stamp', '$stamp');
+      INSERT INTO app_users VALUES (
+        'user-a', 'operador', 'Operador', 'user', 'company-a', 'production',
+        1, 'selected', 'hash', '$stamp', '$stamp', NULL
+      );
+      INSERT INTO user_area_permissions VALUES ('user-a', 'area-a');
+    ''');
+    v2.dispose();
+
+    final migrated = DatabaseService.fromPath(path);
+    final organizations = SqliteOrganizationRepository(migrated);
+    addTearDown(() async {
+      await organizations.close();
+      migrated.close();
+      directory.deleteSync(recursive: true);
+    });
+
+    expect(migrated.version, 3);
+    expect(
+      migrated.database.select(
+        'SELECT company_id FROM user_company_permissions WHERE user_id = ?',
+        ['user-a'],
+      ).single['company_id'],
+      'company-a',
+    );
+    final user = await organizations.findUser('user-a');
+    expect(user?.companyIds, {'company-a'});
+    expect(user?.areaIds, {'area-a'});
+  });
 }

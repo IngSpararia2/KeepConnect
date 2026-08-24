@@ -60,7 +60,7 @@ void main() {
         username: 'regular',
         displayName: 'Regular',
         privilege: PlatformPrivilege.user,
-        companyId: DatabaseService.legacyCompanyId,
+        companyIds: const {DatabaseService.legacyCompanyId},
         operationalRole: AppRole.production,
         active: true,
         areaAccessMode: AreaAccessMode.selected,
@@ -114,7 +114,7 @@ void main() {
         username: 'regular',
         displayName: 'Regular',
         privilege: PlatformPrivilege.user,
-        companyId: DatabaseService.legacyCompanyId,
+        companyIds: const {DatabaseService.legacyCompanyId},
         operationalRole: AppRole.production,
         active: true,
         areaAccessMode: AreaAccessMode.selected,
@@ -163,6 +163,62 @@ void main() {
     await tester.tap(find.byKey(const Key('session-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cerrar sesión'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('app-logo-login')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('logout desde selector de empresa no muestra error fugaz', (
+    tester,
+  ) async {
+    final database = DatabaseService.inMemory();
+    final session = await LocalSession.load(store: _MemorySessionStore());
+    final now = DateTime(2026);
+    await session.start(
+      AppUser(
+        id: 'regular-areas',
+        username: 'regular-areas',
+        displayName: 'Regular',
+        privilege: PlatformPrivilege.user,
+        companyIds: const {DatabaseService.legacyCompanyId},
+        operationalRole: AppRole.production,
+        active: true,
+        areaAccessMode: AreaAccessMode.selected,
+        areaIds: const {DatabaseService.legacyPlantAreaId},
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final organizations = SqliteOrganizationRepository(
+      database,
+      context: () => session.accessContext,
+      hasher: const PasswordHasher(iterations: 10000),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        localSessionProvider.overrideWithValue(session),
+        organizationRepositoryProvider.overrideWithValue(organizations),
+        authenticationRepositoryProvider.overrideWithValue(organizations),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await organizations.close();
+      database.close();
+    });
+    final router = container.read(appRouterProvider)..go('/areas');
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('logout-from-areas')));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('app-logo-login')), findsOneWidget);

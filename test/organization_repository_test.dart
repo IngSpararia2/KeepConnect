@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gestion_interna/core/database/database_service.dart';
 import 'package:gestion_interna/core/notifications/notification_service.dart';
+import 'package:gestion_interna/core/session/local_session.dart';
 import 'package:gestion_interna/features/maintenance/data/sqlite_form_template_repository.dart';
 import 'package:gestion_interna/features/maintenance/data/sqlite_maintenance_repository.dart';
 import 'package:gestion_interna/features/maintenance/domain/create_ticket_input.dart';
@@ -140,6 +141,142 @@ void main() {
     );
   });
 
+  test('usuario conserva dos empresas y solo sus áreas autorizadas', () async {
+    final companyA = _company('company-a', 'Empresa A', now);
+    final companyB = _company('company-b', 'Empresa B', now);
+    final companyC = _company('company-c', 'Empresa C', now);
+    final areaA = _area('area-a', companyA.id, 'Planta', now);
+    final areaB = _area('area-b', companyB.id, 'Trituración', now);
+    final areaB2 = _area('area-b2', companyB.id, 'Administración', now);
+    final areaC = _area('area-c', companyC.id, 'Empaque', now);
+    for (final company in [companyA, companyB, companyC]) {
+      await organizations.saveCompany(company);
+    }
+    for (final area in [areaA, areaB, areaB2, areaC]) {
+      await organizations.saveArea(area);
+    }
+    final user = AppUser(
+      id: 'multi-user',
+      username: 'multi@example.com',
+      displayName: 'Multiempresa',
+      privilege: PlatformPrivilege.user,
+      companyIds: {companyA.id, companyB.id},
+      operationalRole: AppRole.maintenance,
+      active: true,
+      areaAccessMode: AreaAccessMode.selected,
+      areaIds: {areaA.id, areaB.id},
+      createdAt: now,
+      updatedAt: now,
+    );
+    await organizations.saveUser(user, newPassword: 'Multi-2026!');
+    final authenticated = await organizations.authenticate(
+      user.username,
+      'Multi-2026!',
+    );
+    expect(authenticated.companyIds, {companyA.id, companyB.id});
+
+    context = AccessContext(
+      userId: user.id,
+      privilege: user.privilege,
+      operationalRole: user.operationalRole!,
+      companyId: null,
+      areaId: null,
+      allowedCompanyIds: user.companyIds,
+      allowedAreaIds: user.areaIds,
+    );
+    expect(
+      (await organizations.watchCompanies(includeInactive: false).first)
+          .map((company) => company.id)
+          .toSet(),
+      {companyA.id, companyB.id},
+    );
+    expect(
+      (await organizations.watchAreas(companyB.id).first)
+          .map((area) => area.id)
+          .toSet(),
+      {areaB.id},
+    );
+    await expectLater(organizations.getCompany(companyC.id), throwsStateError);
+
+    final session = await LocalSession.load(
+      store: _MemorySessionStore(),
+      validateContext: organizations.isContextAvailable,
+    );
+    await session.start(authenticated);
+    await session.selectArea(companyId: companyA.id, areaId: areaA.id);
+    await session.selectArea(companyId: companyB.id, areaId: areaB.id);
+    await expectLater(
+      session.selectArea(companyId: companyB.id, areaId: areaB2.id),
+      throwsStateError,
+    );
+    await expectLater(
+      session.selectArea(companyId: companyC.id, areaId: areaC.id),
+      throwsStateError,
+    );
+
+    context = adminContext();
+    await expectLater(
+      organizations.saveUser(
+        AppUser(
+          id: 'invalid-user',
+          username: 'invalid@example.com',
+          displayName: 'Inválido',
+          privilege: PlatformPrivilege.user,
+          companyIds: {companyA.id, companyB.id},
+          operationalRole: AppRole.production,
+          active: true,
+          areaAccessMode: AreaAccessMode.selected,
+          areaIds: {areaA.id},
+          createdAt: now,
+          updatedAt: now,
+        ),
+        newPassword: 'Invalid-2026!',
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('modo all abarca áreas de empresas asignadas, no externas', () async {
+    final companyA = _company('company-a', 'Empresa A', now);
+    final companyB = _company('company-b', 'Empresa B', now);
+    final companyC = _company('company-c', 'Empresa C', now);
+    final areaA = _area('area-a', companyA.id, 'Planta', now);
+    final areaB = _area('area-b', companyB.id, 'Trituración', now);
+    final areaC = _area('area-c', companyC.id, 'Empaque', now);
+    for (final company in [companyA, companyB, companyC]) {
+      await organizations.saveCompany(company);
+    }
+    for (final area in [areaA, areaB, areaC]) {
+      await organizations.saveArea(area);
+    }
+    final user = AppUser(
+      id: 'all-user',
+      username: 'all@example.com',
+      displayName: 'Todas',
+      privilege: PlatformPrivilege.user,
+      companyIds: {companyA.id, companyB.id},
+      operationalRole: AppRole.production,
+      active: true,
+      areaAccessMode: AreaAccessMode.all,
+      areaIds: const {},
+      createdAt: now,
+      updatedAt: now,
+    );
+    await organizations.saveUser(user, newPassword: 'All-2026!!');
+    context = AccessContext(
+      userId: user.id,
+      privilege: user.privilege,
+      operationalRole: user.operationalRole!,
+      companyId: null,
+      areaId: null,
+      allowedCompanyIds: user.companyIds,
+      allCompanyAreas: true,
+    );
+    expect(await organizations.watchAreas(companyA.id).first, hasLength(1));
+    expect(await organizations.watchAreas(companyB.id).first, hasLength(1));
+    expect(() => organizations.watchAreas(companyC.id), throwsStateError);
+  });
+
   test('catálogo evita duplicados normalizados y conserva retirados', () async {
     final company = _company('company-a', 'Empresa A', now);
     final area = _area('area-a', company.id, 'Planta', now);
@@ -225,7 +362,8 @@ void main() {
       userId: user.id,
       privilege: PlatformPrivilege.user,
       operationalRole: AppRole.production,
-      companyId: user.companyId,
+      companyId: area.companyId,
+      allowedCompanyIds: user.companyIds,
       areaId: area.id,
       allowedAreaIds: user.areaIds,
     );
@@ -292,6 +430,7 @@ void main() {
         operationalRole: AppRole.production,
         companyId: company.id,
         areaId: area.id,
+        allowedCompanyIds: user.companyIds,
         allowedAreaIds: user.areaIds,
       );
       final maintenance = SqliteMaintenanceRepository(
@@ -332,6 +471,7 @@ void main() {
         operationalRole: AppRole.production,
         companyId: company.id,
         areaId: area.id,
+        allowedCompanyIds: user.companyIds,
         allowedAreaIds: user.areaIds,
       );
       expect(
@@ -414,6 +554,7 @@ void main() {
       operationalRole: AppRole.production,
       companyId: companyA.id,
       areaId: areaA.id,
+      allowedCompanyIds: {companyA.id},
       allowedAreaIds: {areaA.id},
     );
     await expectLater(templates.deleteTemplate('template-a'), throwsStateError);
@@ -440,7 +581,7 @@ AppUser _user(String id, String companyId, Set<String> areaIds, DateTime now) =>
       username: '$id@example.com',
       displayName: id,
       privilege: PlatformPrivilege.user,
-      companyId: companyId,
+      companyIds: {companyId},
       operationalRole: AppRole.production,
       active: true,
       areaAccessMode: AreaAccessMode.selected,
@@ -453,7 +594,7 @@ AppUser _copyUser(AppUser user, {required bool active}) => AppUser(
   username: user.username,
   displayName: user.displayName,
   privilege: user.privilege,
-  companyId: user.companyId,
+  companyIds: user.companyIds,
   operationalRole: user.operationalRole,
   active: active,
   areaAccessMode: user.areaAccessMode,
@@ -486,3 +627,17 @@ CreateTicketInput _customInput(String suffix) => CreateTicketInput(
   locationIsCustom: true,
   priority: TicketPriority.medium,
 );
+
+class _MemorySessionStore implements SessionStore {
+  final values = <String, Object>{};
+  @override
+  Future<bool?> getBool(String key) async => values[key] as bool?;
+  @override
+  Future<String?> getString(String key) async => values[key] as String?;
+  @override
+  Future<void> remove(String key) async => values.remove(key);
+  @override
+  Future<void> setBool(String key, bool value) async => values[key] = value;
+  @override
+  Future<void> setString(String key, String value) async => values[key] = value;
+}

@@ -71,12 +71,12 @@ class AppUser {
     required this.username,
     required this.displayName,
     required this.privilege,
+    required this.companyIds,
     required this.active,
     required this.areaAccessMode,
     required this.areaIds,
     required this.createdAt,
     required this.updatedAt,
-    this.companyId,
     this.operationalRole,
     this.lastSeenAt,
   });
@@ -85,7 +85,7 @@ class AppUser {
   final String username;
   final String displayName;
   final PlatformPrivilege privilege;
-  final String? companyId;
+  final Set<String> companyIds;
   final AppRole? operationalRole;
   final bool active;
   final AreaAccessMode areaAccessMode;
@@ -95,10 +95,12 @@ class AppUser {
   final DateTime? lastSeenAt;
 
   bool get isSuperAdmin => privilege == PlatformPrivilege.superAdmin;
+  bool canAccessCompany(String companyId) =>
+      isSuperAdmin || (active && companyIds.contains(companyId));
   bool canAccessArea(String company, String area) =>
       isSuperAdmin ||
       (active &&
-          companyId == company &&
+          companyIds.contains(company) &&
           (areaAccessMode == AreaAccessMode.all || areaIds.contains(area)));
 }
 
@@ -143,6 +145,7 @@ class AccessContext {
     required this.operationalRole,
     required this.companyId,
     required this.areaId,
+    this.allowedCompanyIds = const {},
     this.allowedAreaIds = const {},
     this.allCompanyAreas = false,
   });
@@ -152,15 +155,20 @@ class AccessContext {
   final AppRole operationalRole;
   final String? companyId;
   final String? areaId;
+  final Set<String> allowedCompanyIds;
   final Set<String> allowedAreaIds;
   final bool allCompanyAreas;
 
   bool get isSuperAdmin => privilege == PlatformPrivilege.superAdmin;
+  bool canAccessCompany(String company) =>
+      isSuperAdmin || allowedCompanyIds.contains(company);
+  bool canAccessArea(String company, String area) =>
+      isSuperAdmin ||
+      (allowedCompanyIds.contains(company) &&
+          (allCompanyAreas || allowedAreaIds.contains(area)));
   bool permits(String company, String area) =>
       isSuperAdmin ||
-      (companyId == company &&
-          areaId == area &&
-          (allCompanyAreas || allowedAreaIds.contains(area)));
+      (companyId == company && areaId == area && canAccessArea(company, area));
 
   static const legacy = AccessContext(
     userId: 'legacy-system-user',

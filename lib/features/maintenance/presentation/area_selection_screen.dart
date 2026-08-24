@@ -13,13 +13,12 @@ class AreaSelectionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
+    if (!session.loggedIn) {
+      return const Scaffold(body: SizedBox.shrink());
+    }
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          session.isSuperAdmin
-              ? 'Seleccionar empresa y área'
-              : 'Seleccionar área',
-        ),
+        title: Text('Seleccionar empresa y área'),
         actions: [
           const ThemeModeSelector(),
           if (session.isSuperAdmin)
@@ -44,18 +43,9 @@ class AreaSelectionScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: StreamBuilder<List<Company>>(
-          stream: session.isSuperAdmin
-              ? ref
-                    .read(organizationRepositoryProvider)
-                    .watchCompanies(includeInactive: false)
-              : Stream.fromFuture(
-                  ref
-                      .read(organizationRepositoryProvider)
-                      .getCompany(session.companyId!)
-                      .then(
-                        (company) => company == null ? <Company>[] : [company],
-                      ),
-                ),
+          stream: ref
+              .read(organizationRepositoryProvider)
+              .watchCompanies(includeInactive: false),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Center(child: Text('${snapshot.error}'));
@@ -105,6 +95,12 @@ class _CompanyAreas extends ConsumerWidget {
             .read(organizationRepositoryProvider)
             .watchAreas(company.id, includeInactive: false),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text('${snapshot.error}'),
+            );
+          }
           final areas = snapshot.data ?? const <WorkArea>[];
           return Card(
             margin: const EdgeInsets.only(bottom: 14),

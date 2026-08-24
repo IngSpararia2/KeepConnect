@@ -33,6 +33,7 @@ final class SharedPreferencesSessionStore implements SessionStore {
 class LocalSession {
   LocalSession._(
     this._store, {
+    required this.validateContext,
     required this.user,
     required this.selectedCompanyId,
     required this.selectedAreaId,
@@ -43,6 +44,8 @@ class LocalSession {
   static const _areaIdKey = 'session_area_id';
 
   final SessionStore _store;
+  final Future<bool> Function(AppUser user, String companyId, String areaId)?
+  validateContext;
   AppUser? user;
   String? selectedCompanyId;
   String? selectedAreaId;
@@ -50,21 +53,43 @@ class LocalSession {
   static Future<LocalSession> load({
     SessionStore? store,
     Future<AppUser?> Function(String id)? resolveUser,
+    Future<bool> Function(AppUser user, String companyId, String areaId)?
+    validateContext,
   }) async {
     final sessionStore = store ?? SharedPreferencesSessionStore();
     final userId = await sessionStore.getString(_userIdKey);
     AppUser? user;
     if (userId != null && resolveUser != null) user = await resolveUser(userId);
     if (user?.active != true) user = null;
+    var selectedCompanyId = user == null
+        ? null
+        : await sessionStore.getString(_companyIdKey);
+    var selectedAreaId = user == null
+        ? null
+        : await sessionStore.getString(_areaIdKey);
+    if (user != null && selectedCompanyId != null && selectedAreaId != null) {
+      final valid =
+          user.canAccessArea(selectedCompanyId, selectedAreaId) &&
+          (validateContext == null ||
+              await validateContext(user, selectedCompanyId, selectedAreaId));
+      if (!valid) {
+        selectedCompanyId = null;
+        selectedAreaId = null;
+        await sessionStore.remove(_companyIdKey);
+        await sessionStore.remove(_areaIdKey);
+      }
+    } else if (selectedCompanyId != null || selectedAreaId != null) {
+      selectedCompanyId = null;
+      selectedAreaId = null;
+      await sessionStore.remove(_companyIdKey);
+      await sessionStore.remove(_areaIdKey);
+    }
     return LocalSession._(
       sessionStore,
+      validateContext: validateContext,
       user: user,
-      selectedCompanyId: user == null
-          ? null
-          : await sessionStore.getString(_companyIdKey),
-      selectedAreaId: user == null
-          ? null
-          : await sessionStore.getString(_areaIdKey),
+      selectedCompanyId: selectedCompanyId,
+      selectedAreaId: selectedAreaId,
     );
   }
 
@@ -75,15 +100,13 @@ class LocalSession {
   AccessContext? get accessContext {
     final current = user;
     if (current == null) return null;
-    final companyId = current.isSuperAdmin
-        ? selectedCompanyId
-        : current.companyId;
     return AccessContext(
       userId: current.id,
       privilege: current.privilege,
       operationalRole: effectiveRole,
-      companyId: companyId,
+      companyId: selectedCompanyId,
       areaId: selectedAreaId,
+      allowedCompanyIds: current.companyIds,
       allowedAreaIds: current.areaIds,
       allCompanyAreas: current.areaAccessMode == AreaAccessMode.all,
     );
@@ -94,14 +117,10 @@ class LocalSession {
       throw StateError('Esta cuenta está deshabilitada.');
     }
     user = authenticatedUser;
-    selectedCompanyId = authenticatedUser.companyId;
+    selectedCompanyId = null;
     selectedAreaId = null;
     await _store.setString(_userIdKey, authenticatedUser.id);
-    if (selectedCompanyId case final company?) {
-      await _store.setString(_companyIdKey, company);
-    } else {
-      await _store.remove(_companyIdKey);
-    }
+    await _store.remove(_companyIdKey);
     await _store.remove(_areaIdKey);
   }
 
@@ -112,6 +131,10 @@ class LocalSession {
     final current = user;
     if (current == null || !current.canAccessArea(companyId, areaId)) {
       throw StateError('No tienes acceso a esta área.');
+    }
+    if (validateContext != null &&
+        !await validateContext!(current, companyId, areaId)) {
+      throw StateError('La empresa o el área ya no está disponible.');
     }
     selectedCompanyId = companyId;
     selectedAreaId = areaId;

@@ -5,12 +5,15 @@ import 'package:gestion_interna/features/organization/domain/organization_models
 
 void main() {
   final now = DateTime(2026);
-  AppUser user({Set<String> areas = const {'area-a'}}) => AppUser(
+  AppUser user({
+    Set<String> companies = const {'company-a'},
+    Set<String> areas = const {'area-a'},
+  }) => AppUser(
     id: 'user-a',
     username: 'operador',
     displayName: 'Operador',
     privilege: PlatformPrivilege.user,
-    companyId: 'company-a',
+    companyIds: companies,
     operationalRole: AppRole.production,
     active: true,
     areaAccessMode: AreaAccessMode.selected,
@@ -58,6 +61,41 @@ void main() {
       session.selectArea(companyId: 'company-b', areaId: 'area-a'),
       throwsStateError,
     );
+  });
+
+  test('permite cambiar entre dos empresas asignadas', () async {
+    final session = await LocalSession.load(store: MemorySessionStore());
+    await session.start(
+      user(
+        companies: const {'company-a', 'company-b'},
+        areas: const {'area-a', 'area-b'},
+      ),
+    );
+    expect(session.selectedCompanyId, isNull);
+    await session.selectArea(companyId: 'company-a', areaId: 'area-a');
+    await session.selectArea(companyId: 'company-b', areaId: 'area-b');
+    expect(session.selectedCompanyId, 'company-b');
+    expect(session.selectedAreaId, 'area-b');
+  });
+
+  test('restauración limpia un contexto cuyo permiso fue retirado', () async {
+    final store = MemorySessionStore();
+    final session = await LocalSession.load(store: store);
+    await session.start(
+      user(
+        companies: const {'company-a', 'company-b'},
+        areas: const {'area-a', 'area-b'},
+      ),
+    );
+    await session.selectArea(companyId: 'company-b', areaId: 'area-b');
+
+    final restored = await LocalSession.load(
+      store: store,
+      resolveUser: (_) async => user(),
+    );
+    expect(restored.loggedIn, isTrue);
+    expect(restored.selectedCompanyId, isNull);
+    expect(restored.selectedAreaId, isNull);
   });
 
   test('logout elimina identidad y contexto', () async {

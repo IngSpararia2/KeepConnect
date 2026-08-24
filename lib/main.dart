@@ -26,6 +26,7 @@ Future<void> main() async {
   );
   session = await LocalSession.load(
     resolveUser: organizationRepository.findUser,
+    validateContext: organizationRepository.isContextAvailable,
   );
   final notifications = LocalNotificationService();
   await notifications.initialize();

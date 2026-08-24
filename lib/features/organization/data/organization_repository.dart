@@ -34,4 +34,9 @@ abstract interface class AuthenticationRepository {
   Future<AppUser> authenticate(String username, String password);
   Future<AppUser?> findUser(String id);
   Future<void> recordActivity(String userId);
+  Future<bool> isContextAvailable(
+    AppUser user,
+    String companyId,
+    String areaId,
+  );
 }

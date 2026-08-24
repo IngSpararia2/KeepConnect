@@ -45,6 +45,16 @@ void main() {
         updatedAt: now,
       ),
     );
+    const companyBId = 'company-b';
+    await organizations.saveCompany(
+      Company(
+        id: companyBId,
+        name: 'Empresa B',
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
     for (final area in ['Planta', 'Trituración', 'Administración', 'Empaque']) {
       await organizations.saveArea(
         WorkArea(
@@ -57,6 +67,16 @@ void main() {
         ),
       );
     }
+    await organizations.saveArea(
+      WorkArea(
+        id: 'area-b',
+        companyId: companyBId,
+        name: 'Trituración B',
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
     final container = ProviderContainer(
       overrides: [
         organizationRepositoryProvider.overrideWithValue(organizations),
@@ -78,6 +98,10 @@ void main() {
     await tester.tap(find.text('Usuarios'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('create-user')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('user-company-company-a')), findsOneWidget);
+    expect(find.byKey(const Key('user-company-company-b')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('user-company-company-b')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('user-password')));

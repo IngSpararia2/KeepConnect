@@ -7,7 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 final class DatabaseService {
   DatabaseService._(this.database);
 
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
   static const legacyCompanyId = 'legacy-company';
   static const legacyPlantAreaId = 'legacy-area-plant';
   static const legacyUserId = 'legacy-system-user';
@@ -53,6 +53,18 @@ final class DatabaseService {
     }
     if (current < 1) database.userVersion = 1;
     if (database.userVersion < 2) _migrateLegacyToMultiTenant();
+    if (database.userVersion < 3) _migrateUsersToMultipleCompanies();
+  }
+
+  void _migrateUsersToMultipleCompanies() {
+    _transaction(() {
+      _createUserCompanyPermissions();
+      database.execute('''
+        INSERT OR IGNORE INTO user_company_permissions(user_id, company_id)
+        SELECT id, company_id FROM app_users WHERE company_id IS NOT NULL
+      ''');
+      database.userVersion = 3;
+    });
   }
 
   void _migrateLegacyToMultiTenant() {
@@ -252,6 +264,9 @@ final class DatabaseService {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_unique
         ON app_users(lower(trim(username)));
+    ''');
+    _createUserCompanyPermissions();
+    database.execute('''
       CREATE TABLE IF NOT EXISTS user_area_permissions (
         user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
         area_id TEXT NOT NULL REFERENCES work_areas(id) ON DELETE CASCADE,
@@ -269,6 +284,18 @@ final class DatabaseService {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS catalog_items_name_unique
         ON catalog_items(company_id, area_id, kind, lower(trim(name)));
+    ''');
+  }
+
+  void _createUserCompanyPermissions() {
+    database.execute('''
+      CREATE TABLE IF NOT EXISTS user_company_permissions (
+        user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        PRIMARY KEY(user_id, company_id)
+      );
+      CREATE INDEX IF NOT EXISTS user_company_permissions_company_index
+        ON user_company_permissions(company_id);
     ''');
   }
 
@@ -325,6 +352,10 @@ final class DatabaseService {
         now,
         now,
       ],
+    );
+    database.execute(
+      'INSERT OR IGNORE INTO user_company_permissions(user_id, company_id) VALUES (?, ?)',
+      [legacyUserId, legacyCompanyId],
     );
   }
 

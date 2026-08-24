@@ -40,11 +40,25 @@ final class SqliteOrganizationRepository
 
   @override
   Stream<List<Company>> watchCompanies({bool includeInactive = true}) {
-    _requireAdmin();
+    final access = _context();
+    if (access == null) {
+      throw StateError('Debes iniciar sesión.');
+    }
+    final clauses = <String>[];
+    final args = <Object?>[];
+    if (!access.isSuperAdmin) {
+      if (access.allowedCompanyIds.isEmpty) return Stream.value(const []);
+      clauses.add(
+        'id IN (${List.filled(access.allowedCompanyIds.length, '?').join(',')})',
+      );
+      args.addAll(access.allowedCompanyIds);
+    }
+    if (!includeInactive) clauses.add('active = 1');
     return _watch(
       () => _db
           .select(
-            'SELECT * FROM companies ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY name COLLATE NOCASE',
+            'SELECT * FROM companies ${clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}'} ORDER BY name COLLATE NOCASE',
+            args,
           )
           .map(_companyFromRow)
           .toList(),
@@ -57,8 +71,7 @@ final class SqliteOrganizationRepository
     bool includeInactive = true,
   }) {
     final access = _context();
-    if (access == null ||
-        (!access.isSuperAdmin && access.companyId != companyId)) {
+    if (access == null || !access.canAccessCompany(companyId)) {
       throw StateError('No tienes acceso a esta empresa.');
     }
     final clauses = <String>['company_id = ?'];
@@ -125,7 +138,7 @@ final class SqliteOrganizationRepository
   @override
   Future<Company?> getCompany(String id) async {
     final access = _context();
-    if (access == null || (!access.isSuperAdmin && access.companyId != id)) {
+    if (access == null || !access.canAccessCompany(id)) {
       throw StateError('No tienes acceso a esta empresa.');
     }
     final rows = _db.select('SELECT * FROM companies WHERE id = ?', [id]);
@@ -140,8 +153,7 @@ final class SqliteOrganizationRepository
     }
     final area = _areaFromRow(rows.first);
     final access = _context();
-    if (access == null ||
-        (!access.isSuperAdmin && !access.permits(area.companyId, area.id))) {
+    if (access == null || !access.canAccessArea(area.companyId, area.id)) {
       throw StateError('No tienes acceso a esta área.');
     }
     return area;
@@ -221,7 +233,9 @@ final class SqliteOrganizationRepository
           user.username.trim(),
           user.displayName.trim(),
           user.privilege.name,
-          user.isSuperAdmin ? null : user.companyId,
+          user.isSuperAdmin || user.companyIds.isEmpty
+              ? null
+              : (user.companyIds.toList()..sort()).first,
           user.isSuperAdmin ? null : user.operationalRole?.name,
           user.active ? 1 : 0,
           user.areaAccessMode.name,
@@ -234,6 +248,17 @@ final class SqliteOrganizationRepository
       _db.execute('DELETE FROM user_area_permissions WHERE user_id = ?', [
         user.id,
       ]);
+      _db.execute('DELETE FROM user_company_permissions WHERE user_id = ?', [
+        user.id,
+      ]);
+      if (!user.isSuperAdmin) {
+        for (final companyId in user.companyIds) {
+          _db.execute(
+            'INSERT INTO user_company_permissions(user_id, company_id) VALUES (?, ?)',
+            [user.id, companyId],
+          );
+        }
+      }
       if (!user.isSuperAdmin &&
           user.areaAccessMode == AreaAccessMode.selected) {
         for (final areaId in user.areaIds) {
@@ -241,9 +266,10 @@ final class SqliteOrganizationRepository
             'SELECT company_id FROM work_areas WHERE id = ?',
             [areaId],
           );
-          if (rows.isEmpty || rows.first['company_id'] != user.companyId) {
+          if (rows.isEmpty ||
+              !user.companyIds.contains(rows.first['company_id'])) {
             throw ArgumentError(
-              'Todas las áreas deben pertenecer a la empresa del usuario.',
+              'Todas las áreas deben pertenecer a una empresa asignada.',
             );
           }
           _db.execute('INSERT INTO user_area_permissions VALUES (?, ?)', [
@@ -330,6 +356,7 @@ final class SqliteOrganizationRepository
       username: cleanUsername,
       displayName: cleanName,
       privilege: PlatformPrivilege.superAdmin,
+      companyIds: const {},
       active: true,
       areaAccessMode: AreaAccessMode.all,
       areaIds: const {},
@@ -371,11 +398,13 @@ final class SqliteOrganizationRepository
     }
     if (!user.isSuperAdmin) {
       final companies = _db.select(
-        'SELECT active FROM companies WHERE id = ?',
-        [user.companyId],
+        'SELECT c.active FROM companies c '
+        'INNER JOIN user_company_permissions p ON p.company_id = c.id '
+        'WHERE p.user_id = ? AND c.active = 1',
+        [user.id],
       );
-      if (companies.isEmpty || companies.first['active'] != 1) {
-        throw StateError('La empresa de esta cuenta está deshabilitada.');
+      if (companies.isEmpty) {
+        throw StateError('Las empresas de esta cuenta están deshabilitadas.');
       }
     }
     await recordActivity(user.id);
@@ -396,6 +425,21 @@ final class SqliteOrganizationRepository
     ]);
   }
 
+  @override
+  Future<bool> isContextAvailable(
+    AppUser user,
+    String companyId,
+    String areaId,
+  ) async {
+    if (!user.canAccessArea(companyId, areaId)) return false;
+    final rows = _db.select(
+      'SELECT 1 FROM work_areas a INNER JOIN companies c ON c.id = a.company_id '
+      'WHERE a.id = ? AND a.company_id = ? AND a.active = 1 AND c.active = 1',
+      [areaId, companyId],
+    );
+    return rows.isNotEmpty;
+  }
+
   void _validateUser(AppUser user, {required bool needsPassword}) {
     if (user.username.trim().isEmpty || user.displayName.trim().isEmpty) {
       throw ArgumentError('Nombre y usuario son obligatorios.');
@@ -404,12 +448,39 @@ final class SqliteOrganizationRepository
       throw ArgumentError('Define una contraseña inicial.');
     }
     if (!user.isSuperAdmin) {
-      if (user.companyId == null || user.operationalRole == null) {
-        throw ArgumentError('Empresa y rol operativo son obligatorios.');
+      if (user.companyIds.isEmpty || user.operationalRole == null) {
+        throw ArgumentError('Empresa(s) y rol operativo son obligatorios.');
       }
       if (user.areaAccessMode == AreaAccessMode.selected &&
           user.areaIds.isEmpty) {
         throw ArgumentError('Selecciona al menos un área.');
+      }
+      final companies = _db.select(
+        'SELECT id FROM companies WHERE id IN (${List.filled(user.companyIds.length, '?').join(',')})',
+        user.companyIds.toList(),
+      );
+      if (companies.length != user.companyIds.length) {
+        throw ArgumentError('Una de las empresas asignadas no existe.');
+      }
+      if (user.areaAccessMode == AreaAccessMode.selected) {
+        final areas = _db.select(
+          'SELECT id, company_id FROM work_areas WHERE id IN (${List.filled(user.areaIds.length, '?').join(',')})',
+          user.areaIds.toList(),
+        );
+        if (areas.length != user.areaIds.length ||
+            areas.any((row) => !user.companyIds.contains(row['company_id']))) {
+          throw ArgumentError(
+            'Todas las áreas deben pertenecer a una empresa asignada.',
+          );
+        }
+        final coveredCompanies = areas
+            .map((row) => row['company_id'] as String)
+            .toSet();
+        if (!coveredCompanies.containsAll(user.companyIds)) {
+          throw ArgumentError(
+            'Selecciona al menos un área de cada empresa asignada.',
+          );
+        }
       }
     }
   }
@@ -444,7 +515,13 @@ final class SqliteOrganizationRepository
       username: row['username'] as String,
       displayName: row['display_name'] as String,
       privilege: PlatformPrivilege.values.byName(row['privilege'] as String),
-      companyId: row['company_id'] as String?,
+      companyIds: _db
+          .select(
+            'SELECT company_id FROM user_company_permissions WHERE user_id = ?',
+            [id],
+          )
+          .map((r) => r['company_id'] as String)
+          .toSet(),
       operationalRole: row['operational_role'] == null
           ? null
           : AppRole.values.byName(row['operational_role'] as String),

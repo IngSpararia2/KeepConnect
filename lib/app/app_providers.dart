@@ -83,6 +83,7 @@ class SessionState {
           operationalRole: effectiveRole,
           companyId: companyId,
           areaId: areaId,
+          allowedCompanyIds: user!.companyIds,
           allowedAreaIds: user!.areaIds,
           allCompanyAreas: user!.areaAccessMode == AreaAccessMode.all,
         );
@@ -94,9 +95,7 @@ class SessionController extends Notifier<SessionState> {
 
   SessionState _snapshot(LocalSession local) => SessionState(
     user: local.user,
-    companyId: local.user?.isSuperAdmin == true
-        ? local.selectedCompanyId
-        : local.user?.companyId,
+    companyId: local.selectedCompanyId,
     areaId: local.selectedAreaId,
   );
 

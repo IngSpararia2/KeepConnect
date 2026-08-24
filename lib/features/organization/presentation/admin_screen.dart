@@ -442,7 +442,7 @@ class _UsersTab extends ConsumerWidget {
                     user.username,
                     user.isSuperAdmin
                         ? 'Superadministrador'
-                        : '${user.operationalRole?.label} · ${user.areaAccessMode == AreaAccessMode.all ? 'Todas las áreas' : '${user.areaIds.length} área(s)'}',
+                        : '${user.operationalRole?.label} · ${user.companyIds.length} empresa(s) · ${user.areaAccessMode == AreaAccessMode.all ? 'Todas las áreas' : '${user.areaIds.length} área(s)'}',
                     user.active ? 'Cuenta habilitada' : 'Cuenta deshabilitada',
                     if (user.lastSeenAt != null)
                       'Última actividad local: ${AppDateTime.dateTime(user.lastSeenAt!)}',
@@ -562,7 +562,7 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   late final _username = TextEditingController(text: widget.user?.username);
   final _password = TextEditingController();
   bool _loading = true;
-  String? _companyId;
+  Set<String> _companyIds = {};
   AppRole _role = AppRole.production;
   AreaAccessMode _mode = AreaAccessMode.all;
   Set<String> _selectedAreas = {};
@@ -571,7 +571,7 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   @override
   void initState() {
     super.initState();
-    _companyId = widget.user?.companyId;
+    _companyIds = {...?widget.user?.companyIds};
     _role = widget.user?.operationalRole ?? AppRole.production;
     _mode = widget.user?.areaAccessMode ?? AreaAccessMode.all;
     _selectedAreas = {...?widget.user?.areaIds};
@@ -581,9 +581,11 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   Future<void> _load() async {
     _companies = await ref
         .read(organizationRepositoryProvider)
-        .watchCompanies(includeInactive: false)
+        .watchCompanies(includeInactive: true)
         .first;
-    _companyId ??= _companies.firstOrNull?.id;
+    if (widget.user == null && _companies.isNotEmpty) {
+      _companyIds.add(_companies.first.id);
+    }
     await _loadAreas();
     if (mounted) {
       setState(() => _loading = false);
@@ -591,12 +593,15 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   }
 
   Future<void> _loadAreas() async {
-    _areas = _companyId == null
-        ? []
-        : await ref
-              .read(organizationRepositoryProvider)
-              .watchAreas(_companyId!, includeInactive: false)
-              .first;
+    _areas = [];
+    for (final companyId in _companyIds) {
+      _areas.addAll(
+        await ref
+            .read(organizationRepositoryProvider)
+            .watchAreas(companyId, includeInactive: true)
+            .first,
+      );
+    }
     _selectedAreas.removeWhere((id) => !_areas.any((area) => area.id == id));
   }
 
@@ -618,7 +623,7 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
           username: _username.text,
           displayName: _name.text,
           privilege: PlatformPrivilege.user,
-          companyId: _companyId,
+          companyIds: _companyIds,
           operationalRole: _role,
           active: widget.user?.active ?? true,
           areaAccessMode: _mode,
@@ -680,25 +685,37 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: _companyId,
-                      decoration: const InputDecoration(labelText: 'Empresa'),
-                      items: _companies
-                          .map(
-                            (c) => DropdownMenuItem(
-                              value: c.id,
-                              child: Text(c.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) async {
-                        _companyId = value;
-                        await _loadAreas();
-                        if (mounted) {
-                          setState(() {});
-                        }
-                      },
+                    Text(
+                      'Empresas asignadas',
+                      style: Theme.of(context).textTheme.labelLarge,
                     ),
+                    for (final company in _companies)
+                      CheckboxListTile(
+                        key: ValueKey('user-company-${company.id}'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(company.name),
+                        subtitle: company.active
+                            ? null
+                            : const Text('Empresa deshabilitada'),
+                        value: _companyIds.contains(company.id),
+                        onChanged: (selected) async {
+                          if (selected == true) {
+                            _companyIds.add(company.id);
+                          } else {
+                            _companyIds.remove(company.id);
+                            _selectedAreas.removeWhere(
+                              (id) => _areas.any(
+                                (area) =>
+                                    area.id == id &&
+                                    area.companyId == company.id,
+                              ),
+                            );
+                          }
+                          await _loadAreas();
+                          if (mounted) setState(() {});
+                        },
+                      ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<AppRole>(
                       initialValue: _role,
@@ -734,20 +751,35 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
                       const SizedBox(height: 4),
-                      for (final area in _areas)
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          title: Text(area.name),
-                          value: _selectedAreas.contains(area.id),
-                          onChanged: (selected) => setState(() {
-                            if (selected == true) {
-                              _selectedAreas.add(area.id);
-                            } else {
-                              _selectedAreas.remove(area.id);
-                            }
-                          }),
+                      for (final company in _companies.where(
+                        (company) => _companyIds.contains(company.id),
+                      )) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          company.name,
+                          style: Theme.of(context).textTheme.titleSmall,
                         ),
+                        for (final area in _areas.where(
+                          (area) => area.companyId == company.id,
+                        ))
+                          CheckboxListTile(
+                            key: ValueKey('user-area-${area.id}'),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(area.name),
+                            subtitle: area.active
+                                ? null
+                                : const Text('Área deshabilitada'),
+                            value: _selectedAreas.contains(area.id),
+                            onChanged: (selected) => setState(() {
+                              if (selected == true) {
+                                _selectedAreas.add(area.id);
+                              } else {
+                                _selectedAreas.remove(area.id);
+                              }
+                            }),
+                          ),
+                      ],
                     ],
                   ],
                 ),
@@ -839,7 +871,7 @@ AppUser _copyUser(AppUser user, {required bool active}) => AppUser(
   username: user.username,
   displayName: user.displayName,
   privilege: user.privilege,
-  companyId: user.companyId,
+  companyIds: user.companyIds,
   operationalRole: user.operationalRole,
   active: active,
   areaAccessMode: user.areaAccessMode,

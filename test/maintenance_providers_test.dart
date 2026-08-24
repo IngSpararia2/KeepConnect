@@ -24,7 +24,7 @@ void main() {
         username: 'operator',
         displayName: 'Solicitante',
         privilege: PlatformPrivilege.user,
-        companyId: DatabaseService.legacyCompanyId,
+        companyIds: const {DatabaseService.legacyCompanyId},
         operationalRole: AppRole.production,
         active: true,
         areaAccessMode: AreaAccessMode.all,
