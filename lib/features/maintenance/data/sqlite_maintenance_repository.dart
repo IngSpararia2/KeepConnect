@@ -58,8 +58,9 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     final scope = _requireScope();
     return _db.select(
           'SELECT COUNT(*) AS total FROM app_notifications '
-          'WHERE recipient = ? AND company_id = ? AND area_id = ? AND is_read = 0',
-          [recipient.name, scope.companyId, scope.areaId],
+          'WHERE recipient = ? AND recipient_user_id = ? '
+          'AND company_id = ? AND area_id = ? AND is_read = 0',
+          [recipient.name, scope.userId, scope.companyId, scope.areaId],
         ).first['total']
         as int;
   });
@@ -102,18 +103,18 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     );
     final now = DateTime.now().toUtc();
     final id = _uuid.v4();
-    final sequence =
-        (_db
-                .select(
-                  "SELECT COALESCE(MAX(CAST(SUBSTR(human_code, 6) AS INTEGER)), 0) "
-                  'AS value FROM tickets',
-                )
-                .first['value']
-            as int) +
-        1;
-    final code = 'MTTO-${sequence.toString().padLeft(4, '0')}';
+    late final String code;
     late final _PendingNotification pending;
     _transaction(() {
+      final sequence =
+          (_db.select(
+                "SELECT COALESCE(MAX(CAST(SUBSTR(human_code, 6) AS INTEGER)), 0) "
+                'AS value FROM tickets WHERE company_id = ?',
+                [scope.companyId],
+              ).first['value']
+              as int) +
+          1;
+      code = 'MTTO-${sequence.toString().padLeft(4, '0')}';
       _db.execute(
         '''INSERT INTO tickets(
         id, human_code, title, description, location, equipment, priority, status,
@@ -387,8 +388,9 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   Future<void> markNotificationRead(String notificationId) async {
     final scope = _requireScope();
     _db.execute(
-      'UPDATE app_notifications SET is_read = 1 WHERE id = ? AND company_id = ? AND area_id = ?',
-      [notificationId, scope.companyId, scope.areaId],
+      'UPDATE app_notifications SET is_read = 1 '
+      'WHERE id = ? AND recipient_user_id = ? AND company_id = ? AND area_id = ?',
+      [notificationId, scope.userId, scope.companyId, scope.areaId],
     );
     _changed();
   }
@@ -442,21 +444,52 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   ) {
     final pending = _PendingNotification(ticketId, title, message);
     final scope = _requireScope();
-    _db.execute(
-      'INSERT INTO app_notifications(id, ticket_id, title, message, recipient, event_type, is_read, '
-      'created_at, company_id, area_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
-      [
-        _uuid.v4(),
-        ticketId,
-        title,
-        message,
-        recipient.name,
-        eventType,
-        createdAt.toIso8601String(),
-        scope.companyId,
-        scope.areaId,
-      ],
+    final recipients = _db.select(
+      '''
+      SELECT DISTINCT user.id
+      FROM app_users user
+      INNER JOIN user_company_permissions company_permission
+        ON company_permission.user_id = user.id
+        AND company_permission.company_id = ?
+      INNER JOIN companies company
+        ON company.id = company_permission.company_id AND company.active = 1
+      INNER JOIN work_areas area
+        ON area.id = ?
+        AND area.company_id = company.id
+        AND area.active = 1
+      WHERE user.privilege = 'user'
+        AND user.active = 1
+        AND user.operational_role = ?
+        AND (
+          user.area_access_mode = 'all'
+          OR EXISTS (
+            SELECT 1 FROM user_area_permissions area_permission
+            WHERE area_permission.user_id = user.id
+              AND area_permission.area_id = area.id
+          )
+        )
+      ''',
+      [scope.companyId, scope.areaId, recipient.name],
     );
+    for (final user in recipients) {
+      _db.execute(
+        'INSERT INTO app_notifications(id, ticket_id, title, message, recipient, event_type, is_read, '
+        'created_at, company_id, area_id, recipient_user_id) '
+        'VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)',
+        [
+          _uuid.v4(),
+          ticketId,
+          title,
+          message,
+          recipient.name,
+          eventType,
+          createdAt.toIso8601String(),
+          scope.companyId,
+          scope.areaId,
+          user['id'],
+        ],
+      );
+    }
     return pending;
   }
 
@@ -609,8 +642,9 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
     final scope = _requireScope();
     return _db
         .select(
-          'SELECT * FROM app_notifications WHERE recipient = ? AND company_id = ? AND area_id = ? ORDER BY created_at DESC',
-          [recipient.name, scope.companyId, scope.areaId],
+          'SELECT * FROM app_notifications WHERE recipient = ? AND recipient_user_id = ? '
+          'AND company_id = ? AND area_id = ? ORDER BY created_at DESC',
+          [recipient.name, scope.userId, scope.companyId, scope.areaId],
         )
         .map(
           (row) => AppNotification(

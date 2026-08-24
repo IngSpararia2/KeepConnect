@@ -354,9 +354,20 @@ void main() {
     final userA = _user('user-a', companyA.id, {areaA.id}, now);
     final userA2 = _user('user-a2', companyA.id, {areaA2.id}, now);
     final userB = _user('user-b', companyB.id, {areaB.id}, now);
+    final maintenanceA = _userWithRole(
+      'maintenance-a',
+      companyA.id,
+      {areaA.id},
+      AppRole.maintenance,
+      now,
+    );
     await organizations.saveUser(userA, newPassword: 'Usuario-A-2026!');
     await organizations.saveUser(userA2, newPassword: 'Usuario-A2-2026!');
     await organizations.saveUser(userB, newPassword: 'Usuario-B-2026!');
+    await organizations.saveUser(
+      maintenanceA,
+      newPassword: 'Maintenance-A-2026!',
+    );
 
     AccessContext regular(AppUser user, WorkArea area) => AccessContext(
       userId: user.id,
@@ -388,6 +399,15 @@ void main() {
     expect(await maintenance.watchTicket(ticketB.ticketId).first, isNull);
     expect(await maintenance.watchUpdates(ticketA2.ticketId).first, isEmpty);
     expect(await maintenance.watchEvents(ticketA2.ticketId).first, isEmpty);
+    context = AccessContext(
+      userId: maintenanceA.id,
+      privilege: PlatformPrivilege.user,
+      operationalRole: AppRole.maintenance,
+      companyId: companyA.id,
+      areaId: areaA.id,
+      allowedCompanyIds: maintenanceA.companyIds,
+      allowedAreaIds: maintenanceA.areaIds,
+    );
     expect(
       (await maintenance.watchNotifications(AppRole.maintenance).first).map(
         (item) => item.ticketId,
@@ -576,19 +596,26 @@ WorkArea _area(String id, String companyId, String name, DateTime now) =>
       updatedAt: now,
     );
 AppUser _user(String id, String companyId, Set<String> areaIds, DateTime now) =>
-    AppUser(
-      id: id,
-      username: '$id@example.com',
-      displayName: id,
-      privilege: PlatformPrivilege.user,
-      companyIds: {companyId},
-      operationalRole: AppRole.production,
-      active: true,
-      areaAccessMode: AreaAccessMode.selected,
-      areaIds: areaIds,
-      createdAt: now,
-      updatedAt: now,
-    );
+    _userWithRole(id, companyId, areaIds, AppRole.production, now);
+AppUser _userWithRole(
+  String id,
+  String companyId,
+  Set<String> areaIds,
+  AppRole role,
+  DateTime now,
+) => AppUser(
+  id: id,
+  username: '$id@example.com',
+  displayName: id,
+  privilege: PlatformPrivilege.user,
+  companyIds: {companyId},
+  operationalRole: role,
+  active: true,
+  areaAccessMode: AreaAccessMode.selected,
+  areaIds: areaIds,
+  createdAt: now,
+  updatedAt: now,
+);
 AppUser _copyUser(AppUser user, {required bool active}) => AppUser(
   id: user.id,
   username: user.username,

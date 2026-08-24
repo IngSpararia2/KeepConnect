@@ -7,7 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 final class DatabaseService {
   DatabaseService._(this.database);
 
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
   static const legacyCompanyId = 'legacy-company';
   static const legacyPlantAreaId = 'legacy-area-plant';
   static const legacyUserId = 'legacy-system-user';
@@ -54,6 +54,101 @@ final class DatabaseService {
     if (current < 1) database.userVersion = 1;
     if (database.userVersion < 2) _migrateLegacyToMultiTenant();
     if (database.userVersion < 3) _migrateUsersToMultipleCompanies();
+    if (database.userVersion < 4) _migrateToPersonalNotifications();
+  }
+
+  void _migrateToPersonalNotifications() {
+    final foreignKeys =
+        database.select('PRAGMA foreign_keys').single['foreign_keys'] as int;
+    database.execute('PRAGMA foreign_keys = OFF');
+    try {
+      _transaction(() {
+        database.execute('''
+          DROP TRIGGER IF EXISTS notifications_ticket_scope_insert;
+          DROP TRIGGER IF EXISTS notifications_ticket_scope_update;
+          CREATE TABLE tickets_v4 (
+            id TEXT PRIMARY KEY,
+            human_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            location TEXT NOT NULL,
+            equipment TEXT,
+            priority TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            company_id TEXT NOT NULL REFERENCES companies(id),
+            area_id TEXT NOT NULL REFERENCES work_areas(id),
+            created_by_user_id TEXT NOT NULL REFERENCES app_users(id),
+            location_option_id TEXT REFERENCES catalog_items(id),
+            location_snapshot TEXT NOT NULL,
+            location_is_custom INTEGER NOT NULL DEFAULT 0,
+            equipment_option_id TEXT REFERENCES catalog_items(id),
+            equipment_snapshot TEXT,
+            equipment_is_custom INTEGER NOT NULL DEFAULT 0
+          );
+          INSERT INTO tickets_v4(
+            id, human_code, title, description, location, equipment, priority,
+            status, created_at, updated_at, company_id, area_id,
+            created_by_user_id, location_option_id, location_snapshot,
+            location_is_custom, equipment_option_id, equipment_snapshot,
+            equipment_is_custom)
+          SELECT
+            id, human_code, title, description, location, equipment, priority,
+            status, created_at, updated_at, company_id, area_id,
+            created_by_user_id, location_option_id, location_snapshot,
+            location_is_custom, equipment_option_id, equipment_snapshot,
+            equipment_is_custom
+          FROM tickets;
+          DROP TABLE tickets;
+          ALTER TABLE tickets_v4 RENAME TO tickets;
+        ''');
+        _fanOutLegacyNotifications();
+        _createIndexesAndGuards();
+        final violations = database.select('PRAGMA foreign_key_check');
+        if (violations.isNotEmpty) {
+          throw StateError('La migración v4 detectó relaciones inválidas.');
+        }
+        database.userVersion = 4;
+      });
+    } finally {
+      database.execute('PRAGMA foreign_keys = $foreignKeys');
+    }
+  }
+
+  void _fanOutLegacyNotifications() {
+    database.execute('''
+      INSERT INTO app_notifications(
+        id, ticket_id, title, message, recipient, event_type, is_read,
+        created_at, company_id, area_id, recipient_user_id)
+      SELECT
+        lower(hex(randomblob(16))), n.ticket_id, n.title, n.message,
+        n.recipient, n.event_type, n.is_read, n.created_at,
+        n.company_id, n.area_id, u.id
+      FROM app_notifications n
+      INNER JOIN app_users u
+        ON u.privilege = 'user'
+        AND u.active = 1
+        AND u.operational_role = n.recipient
+      INNER JOIN user_company_permissions company_permission
+        ON company_permission.user_id = u.id
+        AND company_permission.company_id = n.company_id
+      INNER JOIN companies company
+        ON company.id = n.company_id AND company.active = 1
+      INNER JOIN work_areas area
+        ON area.id = n.area_id
+        AND area.company_id = n.company_id
+        AND area.active = 1
+      WHERE n.recipient_user_id IS NULL
+        AND (
+          u.area_access_mode = 'all'
+          OR EXISTS (
+            SELECT 1 FROM user_area_permissions area_permission
+            WHERE area_permission.user_id = u.id
+              AND area_permission.area_id = n.area_id
+          )
+        )
+    ''');
   }
 
   void _migrateUsersToMultipleCompanies() {
@@ -131,7 +226,7 @@ final class DatabaseService {
     database.execute('''
       CREATE TABLE tickets (
         id TEXT PRIMARY KEY,
-        human_code TEXT NOT NULL UNIQUE,
+        human_code TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT NOT NULL,
         location TEXT NOT NULL,
@@ -303,8 +398,14 @@ final class DatabaseService {
     database.execute('''
       CREATE INDEX IF NOT EXISTS tickets_scope_index
         ON tickets(company_id, area_id, updated_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS tickets_company_code_unique
+        ON tickets(company_id, human_code);
       CREATE INDEX IF NOT EXISTS notifications_scope_index
         ON app_notifications(company_id, area_id, recipient, is_read);
+      CREATE INDEX IF NOT EXISTS notifications_personal_inbox_index
+        ON app_notifications(
+          recipient_user_id, company_id, area_id, recipient, is_read, created_at
+        );
       CREATE INDEX IF NOT EXISTS templates_scope_index
         ON form_templates(company_id, area_id);
       CREATE TRIGGER IF NOT EXISTS tickets_scope_required_insert
@@ -315,6 +416,116 @@ final class DatabaseService {
       BEFORE UPDATE OF company_id, area_id, created_by_user_id ON tickets
       WHEN NEW.company_id IS NULL OR NEW.area_id IS NULL OR NEW.created_by_user_id IS NULL
       BEGIN SELECT RAISE(ABORT, 'ticket scope is required'); END;
+      CREATE TRIGGER IF NOT EXISTS tickets_company_area_insert
+      BEFORE INSERT ON tickets
+      WHEN NOT EXISTS (
+        SELECT 1 FROM work_areas area
+        WHERE area.id = NEW.area_id AND area.company_id = NEW.company_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'ticket area does not belong to company'); END;
+      CREATE TRIGGER IF NOT EXISTS tickets_company_area_update
+      BEFORE UPDATE OF company_id, area_id ON tickets
+      WHEN NOT EXISTS (
+        SELECT 1 FROM work_areas area
+        WHERE area.id = NEW.area_id AND area.company_id = NEW.company_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'ticket area does not belong to company'); END;
+      CREATE TRIGGER IF NOT EXISTS notifications_personal_insert
+      BEFORE INSERT ON app_notifications
+      WHEN NEW.recipient_user_id IS NULL
+      BEGIN SELECT RAISE(ABORT, 'notification recipient user is required'); END;
+      CREATE TRIGGER IF NOT EXISTS notifications_ticket_scope_insert
+      BEFORE INSERT ON app_notifications
+      WHEN NOT EXISTS (
+        SELECT 1 FROM tickets ticket
+        WHERE ticket.id = NEW.ticket_id
+          AND ticket.company_id = NEW.company_id
+          AND ticket.area_id = NEW.area_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'notification scope does not match ticket'); END;
+      CREATE TRIGGER IF NOT EXISTS notifications_ticket_scope_update
+      BEFORE UPDATE OF ticket_id, company_id, area_id ON app_notifications
+      WHEN NOT EXISTS (
+        SELECT 1 FROM tickets ticket
+        WHERE ticket.id = NEW.ticket_id
+          AND ticket.company_id = NEW.company_id
+          AND ticket.area_id = NEW.area_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'notification scope does not match ticket'); END;
+      CREATE TRIGGER IF NOT EXISTS notifications_recipient_insert
+      BEFORE INSERT ON app_notifications
+      WHEN NEW.recipient_user_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM app_users user
+        INNER JOIN user_company_permissions company_permission
+          ON company_permission.user_id = user.id
+          AND company_permission.company_id = NEW.company_id
+        INNER JOIN companies company
+          ON company.id = NEW.company_id AND company.active = 1
+        INNER JOIN work_areas area
+          ON area.id = NEW.area_id
+          AND area.company_id = NEW.company_id
+          AND area.active = 1
+        WHERE user.id = NEW.recipient_user_id
+          AND user.privilege = 'user'
+          AND user.active = 1
+          AND user.operational_role = NEW.recipient
+          AND (
+            user.area_access_mode = 'all'
+            OR EXISTS (
+              SELECT 1 FROM user_area_permissions area_permission
+              WHERE area_permission.user_id = user.id
+                AND area_permission.area_id = NEW.area_id
+            )
+          )
+      )
+      BEGIN SELECT RAISE(ABORT, 'notification recipient is not eligible'); END;
+      CREATE TRIGGER IF NOT EXISTS notifications_recipient_update
+      BEFORE UPDATE OF recipient_user_id, recipient, company_id, area_id
+      ON app_notifications
+      WHEN NEW.recipient_user_id IS NULL OR NOT EXISTS (
+        SELECT 1
+        FROM app_users user
+        INNER JOIN user_company_permissions company_permission
+          ON company_permission.user_id = user.id
+          AND company_permission.company_id = NEW.company_id
+        INNER JOIN work_areas area
+          ON area.id = NEW.area_id AND area.company_id = NEW.company_id
+        WHERE user.id = NEW.recipient_user_id
+          AND user.privilege = 'user'
+          AND user.operational_role = NEW.recipient
+          AND (
+            user.area_access_mode = 'all'
+            OR EXISTS (
+              SELECT 1 FROM user_area_permissions area_permission
+              WHERE area_permission.user_id = user.id
+                AND area_permission.area_id = NEW.area_id
+            )
+          )
+      )
+      BEGIN SELECT RAISE(ABORT, 'notification recipient is invalid'); END;
+      CREATE TRIGGER IF NOT EXISTS user_area_company_insert
+      BEFORE INSERT ON user_area_permissions
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM work_areas area
+        INNER JOIN user_company_permissions company_permission
+          ON company_permission.user_id = NEW.user_id
+          AND company_permission.company_id = area.company_id
+        WHERE area.id = NEW.area_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'area permission requires company permission'); END;
+      CREATE TRIGGER IF NOT EXISTS user_area_company_update
+      BEFORE UPDATE OF user_id, area_id ON user_area_permissions
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM work_areas area
+        INNER JOIN user_company_permissions company_permission
+          ON company_permission.user_id = NEW.user_id
+          AND company_permission.company_id = area.company_id
+        WHERE area.id = NEW.area_id
+      )
+      BEGIN SELECT RAISE(ABORT, 'area permission requires company permission'); END;
     ''');
   }
 
