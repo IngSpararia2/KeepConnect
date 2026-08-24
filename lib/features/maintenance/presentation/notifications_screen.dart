@@ -15,7 +15,25 @@ class NotificationsScreen extends ConsumerWidget {
         skipLoadingOnRefresh: false,
         skipLoadingOnReload: false,
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('$error')),
+        error: (_, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'No fue posible cargar las notificaciones.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonal(
+                  onPressed: () => ref.invalidate(notificationsProvider),
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (items) => items.isEmpty
             ? const Center(
                 child: Text('No hay notificaciones para esta vista.'),
@@ -52,11 +70,23 @@ class NotificationsScreen extends ConsumerWidget {
                       ),
                       isThreeLine: true,
                       onTap: () async {
-                        await ref
-                            .read(maintenanceRepositoryProvider)
-                            .markNotificationRead(item.id);
-                        if (context.mounted) {
-                          context.push('/tickets/${item.ticketId}');
+                        try {
+                          await ref
+                              .read(maintenanceRepositoryProvider)
+                              .markNotificationRead(item.id);
+                          if (context.mounted) {
+                            context.push('/tickets/${item.ticketId}');
+                          }
+                        } catch (_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'No fue posible abrir la notificación.',
+                                ),
+                              ),
+                            );
+                          }
                         }
                       },
                     ),

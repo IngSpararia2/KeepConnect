@@ -7,4 +7,5 @@ abstract interface class FormTemplateRepository {
   Future<void> createTemplate(FormTemplate template);
   Future<void> updateTemplate(FormTemplate template);
   Future<void> deleteTemplate(String id);
+  Future<void> close();
 }

@@ -27,6 +27,7 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
   var _priority = TicketPriority.medium;
   var _saving = false;
   var _loadingCatalogs = true;
+  String? _catalogError;
   List<CatalogItem> _locations = const [];
   List<CatalogItem> _equipmentItems = const [];
   String? _locationSelection;
@@ -43,17 +44,42 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
   Future<void> _loadCatalogs() async {
     final session = ref.read(sessionProvider);
     final repository = ref.read(organizationRepositoryProvider);
-    _locations = await repository
-        .watchCatalog(session.companyId!, session.areaId!, CatalogKind.location)
-        .first;
-    _equipmentItems = await repository
-        .watchCatalog(
-          session.companyId!,
-          session.areaId!,
-          CatalogKind.equipment,
-        )
-        .first;
-    if (mounted) setState(() => _loadingCatalogs = false);
+    if (mounted) {
+      setState(() {
+        _loadingCatalogs = true;
+        _catalogError = null;
+      });
+    }
+    try {
+      final locations = await repository
+          .watchCatalog(
+            session.companyId!,
+            session.areaId!,
+            CatalogKind.location,
+          )
+          .first;
+      final equipmentItems = await repository
+          .watchCatalog(
+            session.companyId!,
+            session.areaId!,
+            CatalogKind.equipment,
+          )
+          .first;
+      if (!mounted) return;
+      setState(() {
+        _locations = locations;
+        _equipmentItems = equipmentItems;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _catalogError =
+              'No fue posible cargar los catálogos. Inténtalo de nuevo.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loadingCatalogs = false);
+    }
   }
 
   @override
@@ -79,10 +105,24 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
   }
 
   Future<void> _selectTemplate() async {
-    final templates = await ref
-        .read(formTemplateRepositoryProvider)
-        .watchTemplates()
-        .first;
+    late final List<FormTemplate> templates;
+    try {
+      templates = await ref
+          .read(formTemplateRepositoryProvider)
+          .watchTemplates()
+          .first;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No fue posible cargar los formularios prediseñados.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     if (templates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -179,11 +219,11 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
           .read(maintenanceRepositoryProvider)
           .createTicket(input);
       if (mounted) context.pushReplacement('/tickets/${result.ticketId}');
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No fue posible crear la solicitud.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -213,6 +253,25 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
                 decoration: const InputDecoration(labelText: 'Descripción *'),
               ),
               const SizedBox(height: 12),
+              if (_catalogError case final error?) ...[
+                Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(error)),
+                        TextButton(
+                          key: const Key('retry-ticket-catalogs'),
+                          onPressed: _loadingCatalogs ? null : _loadCatalogs,
+                          child: const Text('Reintentar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               DropdownButtonFormField<String>(
                 key: const Key('ticket-location-catalog'),
                 initialValue: _locationSelection,
@@ -225,7 +284,7 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
                     DropdownMenuItem(value: item.id, child: Text(item.name)),
                   const DropdownMenuItem(value: _other, child: Text('Otra')),
                 ],
-                onChanged: _loadingCatalogs
+                onChanged: _loadingCatalogs || _catalogError != null
                     ? null
                     : (value) => setState(() => _locationSelection = value),
               ),
@@ -257,7 +316,7 @@ class _CreateTicketScreenState extends ConsumerState<CreateTicketScreen> {
                     DropdownMenuItem(value: item.id, child: Text(item.name)),
                   const DropdownMenuItem(value: _other, child: Text('Otra')),
                 ],
-                onChanged: _loadingCatalogs
+                onChanged: _loadingCatalogs || _catalogError != null
                     ? null
                     : (value) => setState(() => _equipmentSelection = value),
               ),

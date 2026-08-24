@@ -16,7 +16,25 @@ void main() {
     database = DatabaseService.inMemory();
     templates = SqliteFormTemplateRepository(database);
   });
-  tearDown(() => database.close());
+  tearDown(() async {
+    await templates.close();
+    database.close();
+  });
+
+  test(
+    'cerrar mantenimiento no invalida repositorios que comparten DB',
+    () async {
+      final maintenance = SqliteMaintenanceRepository(
+        database,
+        notificationGateway: const NoopNotificationGateway(),
+      );
+      await maintenance.close();
+
+      final template = _template();
+      await templates.createTemplate(template);
+      expect((await templates.getTemplate(template.id))?.name, template.name);
+    },
+  );
 
   test('crea, recupera y conserva orden y opciones', () async {
     final template = _template();
@@ -147,6 +165,7 @@ void main() {
     final ticket = await maintenance.watchTicket(created.ticketId).first;
     expect(ticket?.questions, hasLength(3));
     expect(ticket?.questions.first.prompt, 'Describa la falla');
+    await maintenance.close();
   });
 }
 

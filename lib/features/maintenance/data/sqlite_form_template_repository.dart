@@ -225,4 +225,7 @@ final class SqliteFormTemplateRepository implements FormTemplateRepository {
     final clean = value?.trim();
     return clean == null || clean.isEmpty ? null : clean;
   }
+
+  @override
+  Future<void> close() => _changes.close();
 }

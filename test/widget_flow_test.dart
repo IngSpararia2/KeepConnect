@@ -140,6 +140,7 @@ class _TicketHarness {
 
   Future<void> dispose() async {
     await repository.close();
+    database.close();
   }
 }
 

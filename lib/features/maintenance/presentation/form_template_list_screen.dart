@@ -33,10 +33,19 @@ class FormTemplateListScreen extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed == true) {
+    if (confirmed != true || !context.mounted) return;
+    try {
       await ref
           .read(formTemplateRepositoryProvider)
           .deleteTemplate(template.id);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No fue posible eliminar la plantilla.'),
+          ),
+        );
+      }
     }
   }
 
@@ -53,7 +62,26 @@ class FormTemplateListScreen extends ConsumerWidget {
         .watch(formTemplatesProvider)
         .when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text('$error')),
+          error: (_, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'No fue posible cargar los formularios prediseñados.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.tonal(
+                    key: const Key('retry-template-list'),
+                    onPressed: () => ref.invalidate(formTemplatesProvider),
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
+            ),
+          ),
           data: (templates) => templates.isEmpty
               ? const Center(
                   child: Padding(

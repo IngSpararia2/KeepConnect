@@ -28,7 +28,10 @@ void main() {
       context: () => context,
     );
   });
-  tearDown(() => repository.close());
+  tearDown(() async {
+    await repository.close();
+    database.close();
+  });
 
   test(
     'persiste agregado, respuestas parciales, eventos y notificaciones',

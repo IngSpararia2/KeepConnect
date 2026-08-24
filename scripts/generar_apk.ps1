@@ -7,43 +7,43 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$GradleWrapper = Join-Path $ProjectRoot 'android\gradlew.bat'
 $UseSafeBuildPath = $ProjectRoot -match '\s'
 # Flutter conserva rutas absolutas de los assets nativos. Una unidad temporal
-# estable evita espacios en la ruta durante toda la compilación.
+# estable evita espacios en la ruta durante toda la validación y compilación.
 $SafeBuildDrive = 'K:'
 $SafeBuildPath = "$SafeBuildDrive\"
 $RunRoot = $ProjectRoot
 $safeDriveCreated = $false
 $locationChanged = $false
-$scriptFailed = $false
-$failureMessage = $null
-$FlutterExecutable = 'flutter'
+$primaryFailure = $null
+$cleanupFailures = [System.Collections.Generic.List[string]]::new()
+$FlutterExecutable = $null
+$GlobalFlutterExecutable = $null
 
 function Invoke-Flutter {
-    param([Parameter(Mandatory)][string[]]$Arguments)
+    param(
+        [Parameter(Mandatory)][string]$Stage,
+        [Parameter(Mandatory)][string[]]$Arguments
+    )
 
     Write-Host ("> flutter " + ($Arguments -join ' ')) -ForegroundColor Cyan
     & $FlutterExecutable @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Flutter terminó con código $LASTEXITCODE."
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "La etapa '$Stage' falló (código $exitCode)."
     }
 }
 
 try {
-    if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
+    $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
+    if (-not $flutterCommand) {
         throw 'No se encontró Flutter en PATH. Instálalo o reinicia la terminal después de configurarlo.'
     }
+    $GlobalFlutterExecutable = $flutterCommand.Source
+    $FlutterExecutable = $GlobalFlutterExecutable
 
-    if (-not (Test-Path -LiteralPath $GradleWrapper)) {
-        throw "No se encontró el wrapper de Gradle esperado: $GradleWrapper"
-    }
-
-    Push-Location $RunRoot
-    $locationChanged = $true
-
-    # Flutter 3.44 puede fallar al invocar assets nativos desde rutas con
-    # espacios. Tests y APK se ejecutan desde una unidad temporal sin espacios.
+    # Flutter crea o repara su wrapper Android antes de ejecutar Gradle. Por eso
+    # no se exige un gradlew generado/ignorado como precondición del checkout.
     if ($UseSafeBuildPath) {
         if (Test-Path -LiteralPath $SafeBuildPath) {
             throw "La unidad temporal $SafeBuildDrive está en uso. Libérala o cambia SafeBuildDrive en generar_apk.ps1."
@@ -57,66 +57,137 @@ try {
         }
 
         $substOutput = & subst.exe $SafeBuildDrive $ProjectRoot 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $substExitCode = $LASTEXITCODE
+        if ($substExitCode -ne 0) {
             throw "No se pudo crear la unidad temporal para compilar: $($substOutput -join ' ')"
         }
         $safeDriveCreated = $true
         $RunRoot = $SafeBuildPath
         $FlutterExecutable = Join-Path $RunRoot '.tooling\flutter\bin\flutter.bat'
         if (-not (Test-Path -LiteralPath $FlutterExecutable)) {
-            throw "No se encontró Flutter en la ruta temporal: $FlutterExecutable"
+            throw "No se encontró Flutter local en $FlutterExecutable. Ejecuta primero la preparación del SDK local del proyecto."
         }
+    }
 
+    Push-Location $RunRoot
+    $locationChanged = $true
+
+    if (-not $ReutilizarCache) {
+        Write-Host 'Limpiando la compilación anterior...' -ForegroundColor Yellow
+        Invoke-Flutter -Stage 'flutter clean' -Arguments @('clean')
+    }
+
+    Write-Host 'Sincronizando dependencias...' -ForegroundColor Yellow
+    Invoke-Flutter -Stage 'flutter pub get' -Arguments @('pub', 'get')
+
+    # El analysis server de Flutter 3.44 genera JSON inválido cuando la raíz es
+    # una unidad SUBST. Analizar desde la ruta real no requiere assets nativos;
+    # tests y build vuelven a la ruta segura inmediatamente después.
+    if ($UseSafeBuildPath) {
         Pop-Location
         $locationChanged = $false
+        $FlutterExecutable = $GlobalFlutterExecutable
+        Push-Location $ProjectRoot
+        $locationChanged = $true
+    }
+
+    Write-Host 'Ejecutando análisis estático...' -ForegroundColor Yellow
+    Invoke-Flutter -Stage 'flutter analyze' -Arguments @('analyze')
+
+    if ($UseSafeBuildPath) {
+        Pop-Location
+        $locationChanged = $false
+        $FlutterExecutable = Join-Path $RunRoot '.tooling\flutter\bin\flutter.bat'
         Push-Location $RunRoot
         $locationChanged = $true
     }
 
-    if (-not $ReutilizarCache) {
-        Write-Host 'Limpiando la compilación anterior...' -ForegroundColor Yellow
-        Invoke-Flutter -Arguments @('clean')
-    }
+    Write-Host 'Ejecutando pruebas...' -ForegroundColor Yellow
+    Invoke-Flutter -Stage 'flutter test' -Arguments @('test')
 
-    if ($UseSafeBuildPath) {
-        Write-Host 'Sincronizando dependencias para la compilación...' -ForegroundColor Yellow
-        Invoke-Flutter -Arguments @('pub', 'get')
-    }
-
-    Write-Host 'Generando APK de depuración...' -ForegroundColor Yellow
-    Invoke-Flutter -Arguments @('build', 'apk', '--debug', '--no-pub')
+    Write-Host 'Generando APK de depuración validada...' -ForegroundColor Yellow
+    Invoke-Flutter -Stage 'flutter build apk --debug' -Arguments @(
+        'build',
+        'apk',
+        '--debug',
+        '--no-pub'
+    )
 
     $apkPath = Join-Path $RunRoot 'build\app\outputs\flutter-apk\app-debug.apk'
-    if (-not (Test-Path -LiteralPath $apkPath)) {
+    if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) {
         throw "Flutter finalizó sin crear la APK esperada: $apkPath"
     }
 
-    Write-Host "APK lista: $(Join-Path $ProjectRoot 'build\app\outputs\flutter-apk\app-debug.apk')" -ForegroundColor Green
+    Write-Host "APK validada: $(Join-Path $ProjectRoot 'build\app\outputs\flutter-apk\app-debug.apk')" -ForegroundColor Green
 }
 catch {
-    $scriptFailed = $true
-    $failureMessage = $_.Exception.Message
+    $primaryFailure = $_.Exception.Message
 }
 finally {
     if ($locationChanged) {
-        Pop-Location
+        try {
+            Pop-Location
+        }
+        catch {
+            $cleanupFailures.Add("No se pudo restaurar el directorio de trabajo: $($_.Exception.Message)")
+        }
     }
 
     if ($safeDriveCreated) {
-        & subst.exe $SafeBuildDrive /D
-        # Restaura la configuración para ejecutar Flutter normalmente desde VS Code.
-        Push-Location $ProjectRoot
         try {
-            & flutter pub get | Out-Host
+            $substCleanupOutput = & subst.exe $SafeBuildDrive /D 2>&1
+            $substCleanupExitCode = $LASTEXITCODE
+            if ($substCleanupExitCode -ne 0) {
+                throw "subst devolvió código ${substCleanupExitCode}: $($substCleanupOutput -join ' ')"
+            }
         }
         catch {
-            Write-Warning 'No se pudo restaurar pub get en la ruta normal del proyecto.'
+            $cleanupFailures.Add("No se pudo desmontar $SafeBuildDrive $($_.Exception.Message)")
         }
-        Pop-Location
+
+        try {
+            $nativeAssetsCache = Join-Path $ProjectRoot '.dart_tool\hooks_runner'
+            if (Test-Path -LiteralPath $nativeAssetsCache) {
+                Remove-Item -LiteralPath $nativeAssetsCache -Recurse -Force
+            }
+        }
+        catch {
+            $cleanupFailures.Add("No se pudo limpiar el caché temporal de assets nativos: $($_.Exception.Message)")
+        }
+
+        # Restaura la configuración para seguir usando Flutter desde la ruta real.
+        try {
+            Push-Location $ProjectRoot
+            try {
+                Write-Host '> flutter pub get (restauración en la ruta real)' -ForegroundColor Cyan
+                & $GlobalFlutterExecutable pub get
+                $restoreExitCode = $LASTEXITCODE
+                if ($restoreExitCode -ne 0) {
+                    throw "flutter pub get devolvió código $restoreExitCode."
+                }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+        catch {
+            $cleanupFailures.Add("No se pudo restaurar pub get en la ruta real: $($_.Exception.Message)")
+        }
     }
 }
 
-if ($scriptFailed) {
-    Write-Error $failureMessage
+if ($primaryFailure) {
+    foreach ($cleanupFailure in $cleanupFailures) {
+        Write-Warning $cleanupFailure
+    }
+    Write-Error -Message $primaryFailure -ErrorAction Continue
+    exit 1
+}
+
+if ($cleanupFailures.Count -gt 0) {
+    foreach ($cleanupFailure in $cleanupFailures) {
+        Write-Warning $cleanupFailure
+    }
+    Write-Error -Message 'La validación terminó, pero falló la limpieza/restauración del entorno.' -ErrorAction Continue
     exit 1
 }

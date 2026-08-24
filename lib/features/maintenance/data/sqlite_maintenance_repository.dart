@@ -732,7 +732,6 @@ final class SqliteMaintenanceRepository implements MaintenanceRepository {
   @override
   Future<void> close() async {
     await _changes.close();
-    _service.close();
   }
 }
 

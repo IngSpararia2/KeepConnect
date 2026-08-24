@@ -26,6 +26,7 @@ class _FormTemplateEditorScreenState
   DateTime? _createdAt;
   var _loading = false;
   var _saving = false;
+  String? _loadError;
 
   @override
   void initState() {
@@ -37,21 +38,36 @@ class _FormTemplateEditorScreenState
   }
 
   Future<void> _load() async {
-    final template = await ref
-        .read(formTemplateRepositoryProvider)
-        .getTemplate(widget.templateId!);
-    if (!mounted) return;
-    if (template == null) {
-      context.pop();
-      return;
-    }
     setState(() {
-      _name.text = template.name;
-      _description.text = template.description ?? '';
-      _questions.addAll(template.questions);
-      _createdAt = template.createdAt;
-      _loading = false;
+      _loading = true;
+      _loadError = null;
     });
+    try {
+      final template = await ref
+          .read(formTemplateRepositoryProvider)
+          .getTemplate(widget.templateId!);
+      if (!mounted) return;
+      if (template == null) {
+        context.pop();
+        return;
+      }
+      setState(() {
+        _name.text = template.name;
+        _description.text = template.description ?? '';
+        _questions
+          ..clear()
+          ..addAll(template.questions);
+        _createdAt = template.createdAt;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadError = 'No fue posible cargar la plantilla.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -113,11 +129,11 @@ class _FormTemplateEditorScreenState
         await repository.updateTemplate(template);
       }
       if (mounted) context.pop();
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No fue posible guardar la plantilla.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -133,6 +149,24 @@ class _FormTemplateEditorScreenState
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
+        : _loadError != null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_loadError!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  FilledButton.tonal(
+                    key: const Key('retry-template-load'),
+                    onPressed: _load,
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
+            ),
+          )
         : SafeArea(
             child: Center(
               child: ConstrainedBox(
