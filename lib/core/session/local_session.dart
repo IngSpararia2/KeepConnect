@@ -142,6 +142,13 @@ class LocalSession {
     await _store.setString(_areaIdKey, areaId);
   }
 
+  Future<void> clearContext() async {
+    selectedCompanyId = null;
+    selectedAreaId = null;
+    await _store.remove(_companyIdKey);
+    await _store.remove(_areaIdKey);
+  }
+
   Future<void> logout() async {
     user = null;
     selectedCompanyId = null;

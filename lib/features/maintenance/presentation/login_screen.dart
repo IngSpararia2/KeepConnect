@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/app_providers.dart';
 import '../../../app/theme/theme_mode_selector.dart';
 import '../../../config/app_config.dart';
+import '../../organization/data/password_hasher.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -21,6 +22,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _submitting = false;
   bool _loadingBootstrap = true;
   bool _bootstrap = false;
+  bool _bootstrapLoadFailed = false;
   String? _error;
 
   @override
@@ -30,14 +32,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _loadBootstrap() async {
-    final needed = await ref
-        .read(authenticationRepositoryProvider)
-        .needsBootstrap();
     if (mounted) {
       setState(() {
-        _bootstrap = needed;
-        _loadingBootstrap = false;
+        _loadingBootstrap = true;
+        _error = null;
+        _bootstrapLoadFailed = false;
       });
+    }
+    try {
+      final needed = await ref
+          .read(authenticationRepositoryProvider)
+          .needsBootstrap();
+      if (mounted) {
+        setState(() {
+          _bootstrap = needed;
+          _loadingBootstrap = false;
+          _bootstrapLoadFailed = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingBootstrap = false;
+          _bootstrapLoadFailed = true;
+          _error =
+              'No fue posible comprobar la configuración inicial. Inténtalo de nuevo.';
+        });
+      }
     }
   }
 
@@ -51,9 +72,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (_bootstrap && _password.text != _confirmation.text) {
-      setState(() => _error = 'Las contraseñas no coinciden.');
-      return;
+    if (_bootstrap) {
+      if (_displayName.text.trim().isEmpty || _user.text.trim().isEmpty) {
+        setState(() => _error = 'Nombre y usuario son obligatorios.');
+        return;
+      }
+      if (_password.text.length < PasswordHasher.minimumPasswordLength) {
+        setState(
+          () => _error =
+              'La contraseña debe tener al menos ${PasswordHasher.minimumPasswordLength} caracteres.',
+        );
+        return;
+      }
+      if (_password.text != _confirmation.text) {
+        setState(() => _error = 'Las contraseñas no coinciden.');
+        return;
+      }
     }
     setState(() {
       _submitting = true;
@@ -78,7 +112,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = '$error'.replaceFirst('Bad state: ', ''));
+        setState(() => _error = _loginErrorMessage(error));
       }
     } finally {
       if (mounted) {
@@ -105,6 +139,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ? const SizedBox(
                             height: 300,
                             child: Center(child: CircularProgressIndicator()),
+                          )
+                        : _bootstrapLoadFailed
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _error!,
+                                key: const Key('login-error'),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              FilledButton(
+                                key: const Key('retry-bootstrap'),
+                                onPressed: _loadBootstrap,
+                                child: const Text('Reintentar'),
+                              ),
+                            ],
                           )
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -234,4 +288,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
     ),
   );
+}
+
+String _loginErrorMessage(Object error) {
+  final message = error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Invalid argument(s): ', '');
+  if (message.contains('SqliteException') ||
+      message.contains('UNIQUE constraint failed')) {
+    return 'No fue posible completar la operación. Inténtalo de nuevo.';
+  }
+  return message.isEmpty || message.contains('Exception')
+      ? 'No fue posible completar la operación. Inténtalo de nuevo.'
+      : message;
 }

@@ -7,6 +7,8 @@ import 'package:crypto/crypto.dart';
 final class PasswordHasher {
   const PasswordHasher({this.iterations = 120000});
 
+  static const minimumPasswordLength = 10;
+
   final int iterations;
 
   String hash(String password) {
@@ -44,8 +46,10 @@ final class PasswordHasher {
   }
 
   void _validate(String password) {
-    if (password.length < 10) {
-      throw ArgumentError('La contraseña debe tener al menos 10 caracteres.');
+    if (password.length < minimumPasswordLength) {
+      throw ArgumentError(
+        'La contraseña debe tener al menos $minimumPasswordLength caracteres.',
+      );
     }
   }
 

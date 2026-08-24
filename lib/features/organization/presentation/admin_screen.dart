@@ -7,6 +7,7 @@ import '../../../app/app_providers.dart';
 import '../../../core/utils/date_time_formatters.dart';
 import '../../maintenance/domain/ticket_enums.dart';
 import '../domain/organization_models.dart';
+import '../data/password_hasher.dart';
 
 class AdminScreen extends ConsumerWidget {
   const AdminScreen({super.key});
@@ -46,18 +47,22 @@ class _CompaniesTab extends ConsumerWidget {
     if (name == null) {
       return;
     }
+    if (!context.mounted) return;
     final now = DateTime.now();
-    await ref
-        .read(organizationRepositoryProvider)
-        .saveCompany(
-          Company(
-            id: original?.id ?? const Uuid().v4(),
-            name: name,
-            active: original?.active ?? true,
-            createdAt: original?.createdAt ?? now,
-            updatedAt: now,
+    await _runAdminAction(
+      context,
+      () => ref
+          .read(organizationRepositoryProvider)
+          .saveCompany(
+            Company(
+              id: original?.id ?? const Uuid().v4(),
+              name: name,
+              active: original?.active ?? true,
+              createdAt: original?.createdAt ?? now,
+              updatedAt: now,
+            ),
           ),
-        );
+    );
   }
 
   @override
@@ -66,7 +71,9 @@ class _CompaniesTab extends ConsumerWidget {
         stream: ref.read(organizationRepositoryProvider).watchCompanies(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Text('${snapshot.error}'));
+            return const Center(
+              child: Text('No fue posible cargar las empresas.'),
+            );
           }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -103,14 +110,25 @@ class _CompaniesTab extends ConsumerWidget {
                                 await _edit(context, ref, company);
                                 return;
                               }
-                              await ref
-                                  .read(organizationRepositoryProvider)
-                                  .saveCompany(
-                                    company.copyWith(
-                                      active: !company.active,
-                                      updatedAt: DateTime.now(),
+                              final saved = await _runAdminAction(
+                                context,
+                                () => ref
+                                    .read(organizationRepositoryProvider)
+                                    .saveCompany(
+                                      company.copyWith(
+                                        active: !company.active,
+                                        updatedAt: DateTime.now(),
+                                      ),
                                     ),
-                                  );
+                              );
+                              if (saved &&
+                                  company.active &&
+                                  ref.read(sessionProvider).companyId ==
+                                      company.id) {
+                                await ref
+                                    .read(sessionProvider.notifier)
+                                    .clearContext();
+                              }
                             },
                             itemBuilder: (_) => [
                               const PopupMenuItem(
@@ -153,19 +171,23 @@ class CompanyDetailScreen extends ConsumerWidget {
     if (name == null) {
       return;
     }
+    if (!context.mounted) return;
     final now = DateTime.now();
-    await ref
-        .read(organizationRepositoryProvider)
-        .saveArea(
-          WorkArea(
-            id: original?.id ?? const Uuid().v4(),
-            companyId: companyId,
-            name: name,
-            active: original?.active ?? true,
-            createdAt: original?.createdAt ?? now,
-            updatedAt: now,
+    await _runAdminAction(
+      context,
+      () => ref
+          .read(organizationRepositoryProvider)
+          .saveArea(
+            WorkArea(
+              id: original?.id ?? const Uuid().v4(),
+              companyId: companyId,
+              name: name,
+              active: original?.active ?? true,
+              createdAt: original?.createdAt ?? now,
+              updatedAt: now,
+            ),
           ),
-        );
+    );
   }
 
   @override
@@ -183,7 +205,9 @@ class CompanyDetailScreen extends ConsumerWidget {
         stream: ref.read(organizationRepositoryProvider).watchAreas(companyId),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Text('${snapshot.error}'));
+            return const Center(
+              child: Text('No fue posible cargar las áreas.'),
+            );
           }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -211,14 +235,22 @@ class CompanyDetailScreen extends ConsumerWidget {
                         await _edit(context, ref, area);
                         return;
                       }
-                      await ref
-                          .read(organizationRepositoryProvider)
-                          .saveArea(
-                            area.copyWith(
-                              active: !area.active,
-                              updatedAt: DateTime.now(),
+                      final saved = await _runAdminAction(
+                        context,
+                        () => ref
+                            .read(organizationRepositoryProvider)
+                            .saveArea(
+                              area.copyWith(
+                                active: !area.active,
+                                updatedAt: DateTime.now(),
+                              ),
                             ),
-                          );
+                      );
+                      if (saved &&
+                          area.active &&
+                          ref.read(sessionProvider).areaId == area.id) {
+                        await ref.read(sessionProvider.notifier).clearContext();
+                      }
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'edit', child: Text('Editar')),
@@ -282,9 +314,11 @@ class CatalogAdminScreen extends ConsumerWidget {
     if (name == null) {
       return;
     }
+    if (!context.mounted) return;
     final now = DateTime.now();
-    try {
-      await ref
+    await _runAdminAction(
+      context,
+      () => ref
           .read(organizationRepositoryProvider)
           .saveCatalogItem(
             CatalogItem(
@@ -297,14 +331,8 @@ class CatalogAdminScreen extends ConsumerWidget {
               createdAt: original?.createdAt ?? now,
               updatedAt: now,
             ),
-          );
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
-      }
-    }
+          ),
+    );
   }
 
   @override
@@ -322,7 +350,9 @@ class CatalogAdminScreen extends ConsumerWidget {
           .watchCatalog(companyId, areaId, kind, includeInactive: true),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('${snapshot.error}'));
+          return const Center(
+            child: Text('No fue posible cargar el catálogo.'),
+          );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -342,14 +372,17 @@ class CatalogAdminScreen extends ConsumerWidget {
                   onTap: () => _edit(context, ref, item),
                   trailing: Switch(
                     value: item.active,
-                    onChanged: (active) => ref
-                        .read(organizationRepositoryProvider)
-                        .saveCatalogItem(
-                          item.copyWith(
-                            active: active,
-                            updatedAt: DateTime.now(),
+                    onChanged: (active) => _runAdminAction(
+                      context,
+                      () => ref
+                          .read(organizationRepositoryProvider)
+                          .saveCatalogItem(
+                            item.copyWith(
+                              active: active,
+                              updatedAt: DateTime.now(),
+                            ),
                           ),
-                        ),
+                    ),
                   ),
                 ),
               ),
@@ -382,17 +415,13 @@ class _UsersTab extends ConsumerWidget {
     if (draft == null) {
       return;
     }
-    try {
-      await ref
+    if (!context.mounted) return;
+    await _runAdminAction(
+      context,
+      () => ref
           .read(organizationRepositoryProvider)
-          .saveUser(draft.user, newPassword: draft.password);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
-      }
-    }
+          .saveUser(draft.user, newPassword: draft.password),
+    );
   }
 
   Future<void> _reset(BuildContext context, WidgetRef ref, AppUser user) async {
@@ -403,9 +432,13 @@ class _UsersTab extends ConsumerWidget {
       ),
     );
     if (password != null) {
-      await ref
-          .read(organizationRepositoryProvider)
-          .resetPassword(user.id, password);
+      if (!context.mounted) return;
+      await _runAdminAction(
+        context,
+        () => ref
+            .read(organizationRepositoryProvider)
+            .resetPassword(user.id, password),
+      );
     }
   }
 
@@ -417,7 +450,7 @@ class _UsersTab extends ConsumerWidget {
     stream: ref.read(organizationRepositoryProvider).watchUsers(),
     builder: (context, snapshot) {
       if (snapshot.hasError) {
-        return Center(child: Text('${snapshot.error}'));
+        return const Center(child: Text('No fue posible cargar los usuarios.'));
       }
       if (!snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
@@ -461,9 +494,14 @@ class _UsersTab extends ConsumerWidget {
                             await _reset(context, ref, user);
                             return;
                           }
-                          await ref
-                              .read(organizationRepositoryProvider)
-                              .saveUser(_copyUser(user, active: !user.active));
+                          await _runAdminAction(
+                            context,
+                            () => ref
+                                .read(organizationRepositoryProvider)
+                                .saveUser(
+                                  _copyUser(user, active: !user.active),
+                                ),
+                          );
                         },
                         itemBuilder: (_) => [
                           const PopupMenuItem(
@@ -568,6 +606,8 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   Set<String> _selectedAreas = {};
   List<Company> _companies = [];
   List<WorkArea> _areas = [];
+  String? _loadError;
+  String? _validationError;
   @override
   void initState() {
     super.initState();
@@ -579,14 +619,32 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   }
 
   Future<void> _load() async {
-    _companies = await ref
-        .read(organizationRepositoryProvider)
-        .watchCompanies(includeInactive: true)
-        .first;
-    if (widget.user == null && _companies.isNotEmpty) {
-      _companyIds.add(_companies.first.id);
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
     }
-    await _loadAreas();
+    try {
+      _companies = await ref
+          .read(organizationRepositoryProvider)
+          .watchCompanies(includeInactive: true)
+          .first;
+      if (widget.user == null && _companyIds.isEmpty) {
+        final firstActive = _companies.where((company) => company.active);
+        if (firstActive.isNotEmpty) _companyIds.add(firstActive.first.id);
+      }
+      await _loadAreas();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadError =
+              'No fue posible cargar empresas y áreas. Inténtalo de nuevo.';
+          _loading = false;
+        });
+      }
+      return;
+    }
     if (mounted) {
       setState(() => _loading = false);
     }
@@ -614,14 +672,73 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   }
 
   void _save() {
+    final username = _username.text.trim();
+    final displayName = _name.text.trim();
+    String? error;
+    if (displayName.isEmpty) {
+      error = 'El nombre es obligatorio.';
+    } else if (username.isEmpty) {
+      error = 'El usuario o correo es obligatorio.';
+    } else if (widget.user == null && _password.text.isEmpty) {
+      error = 'Define una contraseña inicial.';
+    } else if (widget.user == null &&
+        _password.text.length < PasswordHasher.minimumPasswordLength) {
+      error =
+          'La contraseña debe tener al menos ${PasswordHasher.minimumPasswordLength} caracteres.';
+    } else if (_companyIds.isEmpty) {
+      error = 'Selecciona al menos una empresa.';
+    } else if (_mode == AreaAccessMode.selected && _selectedAreas.isEmpty) {
+      error = 'Selecciona al menos un área.';
+    } else {
+      final selectedAreas = _areas.where(
+        (area) => _selectedAreas.contains(area.id),
+      );
+      if (_mode == AreaAccessMode.selected &&
+          (selectedAreas.length != _selectedAreas.length ||
+              selectedAreas.any(
+                (area) => !_companyIds.contains(area.companyId),
+              ))) {
+        error = 'Todas las áreas deben pertenecer a una empresa asignada.';
+      } else if (_mode == AreaAccessMode.selected &&
+          !_companyIds.every(
+            (companyId) =>
+                selectedAreas.any((area) => area.companyId == companyId),
+          )) {
+        error = 'Selecciona al menos un área de cada empresa asignada.';
+      } else {
+        final activeCompanies = _companies
+            .where(
+              (company) => _companyIds.contains(company.id) && company.active,
+            )
+            .map((company) => company.id)
+            .toSet();
+        final usable = _mode == AreaAccessMode.all
+            ? _areas.any(
+                (area) =>
+                    activeCompanies.contains(area.companyId) && area.active,
+              )
+            : selectedAreas.any(
+                (area) =>
+                    activeCompanies.contains(area.companyId) && area.active,
+              );
+        if ((widget.user?.active ?? true) && !usable) {
+          error =
+              'El usuario activo debe tener al menos un contexto de trabajo disponible.';
+        }
+      }
+    }
+    if (error != null) {
+      setState(() => _validationError = error);
+      return;
+    }
     final now = DateTime.now();
     Navigator.pop(
       context,
       _UserDraft(
         AppUser(
           id: widget.user?.id ?? const Uuid().v4(),
-          username: _username.text,
-          displayName: _name.text,
+          username: username,
+          displayName: displayName,
           privilege: PlatformPrivilege.user,
           companyIds: _companyIds,
           operationalRole: _role,
@@ -655,6 +772,21 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                 height: 80,
                 child: Center(child: CircularProgressIndicator()),
               )
+            : _loadError != null
+            ? SizedBox(
+                height: 100,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(_loadError!, textAlign: TextAlign.center),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: _load,
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              )
             : SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -665,6 +797,17 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                       controller: _name,
                       decoration: const InputDecoration(labelText: 'Nombre'),
                     ),
+                    if (_validationError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          _validationError!,
+                          key: const Key('user-dialog-error'),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 12),
                     TextField(
                       key: const Key('user-username'),
@@ -699,22 +842,40 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                             ? null
                             : const Text('Empresa deshabilitada'),
                         value: _companyIds.contains(company.id),
-                        onChanged: (selected) async {
-                          if (selected == true) {
-                            _companyIds.add(company.id);
-                          } else {
-                            _companyIds.remove(company.id);
-                            _selectedAreas.removeWhere(
-                              (id) => _areas.any(
-                                (area) =>
-                                    area.id == id &&
-                                    area.companyId == company.id,
-                              ),
-                            );
-                          }
-                          await _loadAreas();
-                          if (mounted) setState(() {});
-                        },
+                        onChanged:
+                            (!company.active &&
+                                !(widget.user?.companyIds.contains(
+                                      company.id,
+                                    ) ??
+                                    false))
+                            ? null
+                            : (selected) async {
+                                if (selected == true) {
+                                  _companyIds.add(company.id);
+                                } else {
+                                  _companyIds.remove(company.id);
+                                  _selectedAreas.removeWhere(
+                                    (id) => _areas.any(
+                                      (area) =>
+                                          area.id == id &&
+                                          area.companyId == company.id,
+                                    ),
+                                  );
+                                }
+                                try {
+                                  await _loadAreas();
+                                  if (mounted) {
+                                    setState(() => _loadError = null);
+                                  }
+                                } catch (_) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _loadError =
+                                          'No fue posible cargar las áreas. Inténtalo de nuevo.';
+                                    });
+                                  }
+                                }
+                              },
                       ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<AppRole>(
@@ -771,13 +932,18 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
                                 ? null
                                 : const Text('Área deshabilitada'),
                             value: _selectedAreas.contains(area.id),
-                            onChanged: (selected) => setState(() {
-                              if (selected == true) {
-                                _selectedAreas.add(area.id);
-                              } else {
-                                _selectedAreas.remove(area.id);
-                              }
-                            }),
+                            onChanged:
+                                (!area.active &&
+                                    !(widget.user?.areaIds.contains(area.id) ??
+                                        false))
+                                ? null
+                                : (selected) => setState(() {
+                                    if (selected == true) {
+                                      _selectedAreas.add(area.id);
+                                    } else {
+                                      _selectedAreas.remove(area.id);
+                                    }
+                                  }),
                           ),
                       ],
                     ],
@@ -792,7 +958,7 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
         ),
         FilledButton(
           key: const Key('save-user'),
-          onPressed: _loading ? null : _save,
+          onPressed: _loading || _loadError != null ? null : _save,
           child: const Text('Guardar'),
         ),
       ],
@@ -821,6 +987,13 @@ class _PasswordDialogState extends State<_PasswordDialog> {
   void _save() {
     if (_password.text != _confirmation.text) {
       setState(() => _error = 'Las contraseñas no coinciden.');
+      return;
+    }
+    if (_password.text.length < PasswordHasher.minimumPasswordLength) {
+      setState(
+        () => _error =
+            'La contraseña debe tener al menos ${PasswordHasher.minimumPasswordLength} caracteres.',
+      );
       return;
     }
     Navigator.pop(context, _password.text);
@@ -880,3 +1053,34 @@ AppUser _copyUser(AppUser user, {required bool active}) => AppUser(
   updatedAt: DateTime.now(),
   lastSeenAt: user.lastSeenAt,
 );
+
+Future<bool> _runAdminAction(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_adminErrorMessage(error))));
+    }
+    return false;
+  }
+}
+
+String _adminErrorMessage(Object error) {
+  final message = error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Invalid argument(s): ', '');
+  if (message.contains('SqliteException') ||
+      message.contains('UNIQUE constraint failed')) {
+    return 'No fue posible completar la operación. Revisa los datos e inténtalo de nuevo.';
+  }
+  return message.isEmpty || message.contains('Exception')
+      ? 'No fue posible completar la operación. Inténtalo de nuevo.'
+      : message;
+}

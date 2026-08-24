@@ -108,6 +108,25 @@ void main() {
     expect(session.accessContext, isNull);
     expect(store.values, isEmpty);
   });
+
+  test(
+    'limpiar contexto conserva la sesión y elimina su persistencia',
+    () async {
+      final store = MemorySessionStore();
+      final session = await LocalSession.load(store: store);
+      await session.start(user());
+      await session.selectArea(companyId: 'company-a', areaId: 'area-a');
+
+      await session.clearContext();
+
+      expect(session.loggedIn, isTrue);
+      expect(session.selectedCompanyId, isNull);
+      expect(session.selectedAreaId, isNull);
+      expect(store.values['session_user_id'], 'user-a');
+      expect(store.values.containsKey('session_company_id'), isFalse);
+      expect(store.values.containsKey('session_area_id'), isFalse);
+    },
+  );
 }
 
 class MemorySessionStore implements SessionStore {

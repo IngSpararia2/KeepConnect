@@ -48,7 +48,11 @@ class AreaSelectionScreen extends ConsumerWidget {
               .watchCompanies(includeInactive: false),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Center(child: Text('${snapshot.error}'));
+              return const Center(
+                child: Text(
+                  'No fue posible cargar las empresas. Inténtalo de nuevo.',
+                ),
+              );
             }
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
@@ -89,61 +93,75 @@ class _CompanyAreas extends ConsumerWidget {
   final Company company;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) =>
-      StreamBuilder<List<WorkArea>>(
-        stream: ref
-            .read(organizationRepositoryProvider)
-            .watchAreas(company.id, includeInactive: false),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('${snapshot.error}'),
-            );
-          }
-          final areas = snapshot.data ?? const <WorkArea>[];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 14),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    company.name,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (snapshot.connectionState == ConnectionState.waiting)
-                    const LinearProgressIndicator()
-                  else if (areas.isEmpty)
-                    const Text('No hay áreas activas disponibles.')
-                  else
-                    for (final area in areas)
-                      ListTile(
-                        key: ValueKey('select-area-${area.id}'),
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.factory_outlined),
-                        ),
-                        title: Text(area.name),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: () async {
-                          await ref
-                              .read(sessionProvider.notifier)
-                              .selectArea(company.id, area.id);
-                          if (context.mounted) {
-                            context.go('/home');
-                          }
-                        },
-                      ),
-                ],
+  Widget build(
+    BuildContext context,
+    WidgetRef ref,
+  ) => StreamBuilder<List<WorkArea>>(
+    stream: ref
+        .read(organizationRepositoryProvider)
+        .watchAreas(company.id, includeInactive: false),
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text('No fue posible cargar las áreas. Inténtalo de nuevo.'),
+        );
+      }
+      final areas = snapshot.data ?? const <WorkArea>[];
+      return Card(
+        margin: const EdgeInsets.only(bottom: 14),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                company.name,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
-            ),
-          );
-        },
+              const SizedBox(height: 8),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const LinearProgressIndicator()
+              else if (areas.isEmpty)
+                const Text('No hay áreas activas disponibles.')
+              else
+                for (final area in areas)
+                  ListTile(
+                    key: ValueKey('select-area-${area.id}'),
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.factory_outlined),
+                    ),
+                    title: Text(area.name),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () async {
+                      try {
+                        await ref
+                            .read(sessionProvider.notifier)
+                            .selectArea(company.id, area.id);
+                        if (context.mounted) {
+                          context.go('/home');
+                        }
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Este contexto ya no está disponible. Actualiza la lista e inténtalo de nuevo.',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+            ],
+          ),
+        ),
       );
+    },
+  );
 }
 
 class _EmptyOrganization extends StatelessWidget {

@@ -23,6 +23,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: refresh,
+    errorBuilder: (_, _) => const InvalidRouteScreen(),
     redirect: (_, state) {
       final session = ref.read(sessionProvider);
       final location = state.matchedLocation;
@@ -58,11 +59,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/admin/companies/:companyId/areas/:areaId/catalog/:kind',
-        builder: (_, state) => CatalogAdminScreen(
-          companyId: state.pathParameters['companyId']!,
-          areaId: state.pathParameters['areaId']!,
-          kind: CatalogKind.values.byName(state.pathParameters['kind']!),
-        ),
+        builder: (_, state) {
+          final matches = CatalogKind.values.where(
+            (value) => value.name == state.pathParameters['kind'],
+          );
+          final kind = matches.isEmpty ? null : matches.first;
+          final companyId = state.pathParameters['companyId'];
+          final areaId = state.pathParameters['areaId'];
+          if (kind == null || companyId == null || areaId == null) {
+            return const InvalidRouteScreen();
+          }
+          return CatalogAdminScreen(
+            companyId: companyId,
+            areaId: areaId,
+            kind: kind,
+          );
+        },
       ),
       GoRoute(
         path: '/form-templates',
@@ -90,6 +102,36 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+class InvalidRouteScreen extends ConsumerWidget {
+  const InvalidRouteScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
+    appBar: AppBar(title: const Text('Ruta no disponible')),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'La dirección solicitada no es válida o ya no está disponible.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => context.go(
+                ref.read(sessionProvider).loggedIn ? '/areas' : '/login',
+              ),
+              child: const Text('Volver a un lugar seguro'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
 class _RouterRefreshNotifier extends ChangeNotifier {
   void refresh() => notifyListeners();

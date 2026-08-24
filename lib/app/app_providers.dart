@@ -131,6 +131,12 @@ class SessionController extends Notifier<SessionState> {
     state = _snapshot(local);
   }
 
+  Future<void> clearContext() async {
+    final local = ref.read(localSessionProvider);
+    await local.clearContext();
+    state = _snapshot(local);
+  }
+
   Future<void> logout() async {
     final local = ref.read(localSessionProvider);
     await local.logout();

@@ -172,17 +172,24 @@ final class SqliteOrganizationRepository
     if (name.isEmpty) {
       throw ArgumentError('El nombre de la empresa es obligatorio.');
     }
-    _db.execute(
-      'INSERT INTO companies(id, name, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?) '
-      'ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = excluded.active, updated_at = excluded.updated_at',
-      [
-        company.id,
-        name,
-        company.active ? 1 : 0,
-        _date(company.createdAt),
-        _date(company.updatedAt),
-      ],
-    );
+    if (!company.active) {
+      _ensureDeactivationKeepsUsableContexts(companyId: company.id);
+    }
+    try {
+      _db.execute(
+        'INSERT INTO companies(id, name, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = excluded.active, updated_at = excluded.updated_at',
+        [
+          company.id,
+          name,
+          company.active ? 1 : 0,
+          _date(company.createdAt),
+          _date(company.updatedAt),
+        ],
+      );
+    } on SqliteException catch (error) {
+      throw _friendlySqliteError(error, 'empresa');
+    }
     _changed();
   }
 
@@ -196,18 +203,23 @@ final class SqliteOrganizationRepository
     if (name.isEmpty) {
       throw ArgumentError('El nombre del área es obligatorio.');
     }
-    _db.execute(
-      'INSERT INTO work_areas(id, company_id, name, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) '
-      'ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = excluded.active, updated_at = excluded.updated_at',
-      [
-        area.id,
-        area.companyId,
-        name,
-        area.active ? 1 : 0,
-        _date(area.createdAt),
-        _date(area.updatedAt),
-      ],
-    );
+    if (!area.active) _ensureDeactivationKeepsUsableContexts(areaId: area.id);
+    try {
+      _db.execute(
+        'INSERT INTO work_areas(id, company_id, name, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = excluded.active, updated_at = excluded.updated_at',
+        [
+          area.id,
+          area.companyId,
+          name,
+          area.active ? 1 : 0,
+          _date(area.createdAt),
+          _date(area.updatedAt),
+        ],
+      );
+    } on SqliteException catch (error) {
+      throw _friendlySqliteError(error, 'área');
+    }
     _changed();
   }
 
@@ -215,70 +227,76 @@ final class SqliteOrganizationRepository
   Future<void> saveUser(AppUser user, {String? newPassword}) async {
     _requireAdmin();
     final existingHash = _passwordHash(user.id);
+    final existingUser = await findUser(user.id);
     _validateUser(
       user,
       needsPassword: existingHash == null && newPassword == null,
+      existingUser: existingUser,
     );
     final hash = newPassword == null ? existingHash : hasher.hash(newPassword);
-    _transaction(() {
-      _db.execute(
-        'INSERT INTO app_users(id, username, display_name, privilege, company_id, operational_role, active, '
-        'area_access_mode, password_hash, created_at, updated_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
-        'ON CONFLICT(id) DO UPDATE SET username = excluded.username, display_name = excluded.display_name, '
-        'privilege = excluded.privilege, company_id = excluded.company_id, operational_role = excluded.operational_role, '
-        'active = excluded.active, area_access_mode = excluded.area_access_mode, password_hash = excluded.password_hash, '
-        'updated_at = excluded.updated_at',
-        [
+    try {
+      _transaction(() {
+        _db.execute(
+          'INSERT INTO app_users(id, username, display_name, privilege, company_id, operational_role, active, '
+          'area_access_mode, password_hash, created_at, updated_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(id) DO UPDATE SET username = excluded.username, display_name = excluded.display_name, '
+          'privilege = excluded.privilege, company_id = excluded.company_id, operational_role = excluded.operational_role, '
+          'active = excluded.active, area_access_mode = excluded.area_access_mode, password_hash = excluded.password_hash, '
+          'updated_at = excluded.updated_at',
+          [
+            user.id,
+            user.username.trim(),
+            user.displayName.trim(),
+            user.privilege.name,
+            user.isSuperAdmin || user.companyIds.isEmpty
+                ? null
+                : (user.companyIds.toList()..sort()).first,
+            user.isSuperAdmin ? null : user.operationalRole?.name,
+            user.active ? 1 : 0,
+            user.areaAccessMode.name,
+            hash,
+            _date(user.createdAt),
+            _date(user.updatedAt),
+            user.lastSeenAt == null ? null : _date(user.lastSeenAt!),
+          ],
+        );
+        _db.execute('DELETE FROM user_area_permissions WHERE user_id = ?', [
           user.id,
-          user.username.trim(),
-          user.displayName.trim(),
-          user.privilege.name,
-          user.isSuperAdmin || user.companyIds.isEmpty
-              ? null
-              : (user.companyIds.toList()..sort()).first,
-          user.isSuperAdmin ? null : user.operationalRole?.name,
-          user.active ? 1 : 0,
-          user.areaAccessMode.name,
-          hash,
-          _date(user.createdAt),
-          _date(user.updatedAt),
-          user.lastSeenAt == null ? null : _date(user.lastSeenAt!),
-        ],
-      );
-      _db.execute('DELETE FROM user_area_permissions WHERE user_id = ?', [
-        user.id,
-      ]);
-      _db.execute('DELETE FROM user_company_permissions WHERE user_id = ?', [
-        user.id,
-      ]);
-      if (!user.isSuperAdmin) {
-        for (final companyId in user.companyIds) {
-          _db.execute(
-            'INSERT INTO user_company_permissions(user_id, company_id) VALUES (?, ?)',
-            [user.id, companyId],
-          );
-        }
-      }
-      if (!user.isSuperAdmin &&
-          user.areaAccessMode == AreaAccessMode.selected) {
-        for (final areaId in user.areaIds) {
-          final rows = _db.select(
-            'SELECT company_id FROM work_areas WHERE id = ?',
-            [areaId],
-          );
-          if (rows.isEmpty ||
-              !user.companyIds.contains(rows.first['company_id'])) {
-            throw ArgumentError(
-              'Todas las áreas deben pertenecer a una empresa asignada.',
+        ]);
+        _db.execute('DELETE FROM user_company_permissions WHERE user_id = ?', [
+          user.id,
+        ]);
+        if (!user.isSuperAdmin) {
+          for (final companyId in user.companyIds) {
+            _db.execute(
+              'INSERT INTO user_company_permissions(user_id, company_id) VALUES (?, ?)',
+              [user.id, companyId],
             );
           }
-          _db.execute('INSERT INTO user_area_permissions VALUES (?, ?)', [
-            user.id,
-            areaId,
-          ]);
         }
-      }
-    });
+        if (!user.isSuperAdmin &&
+            user.areaAccessMode == AreaAccessMode.selected) {
+          for (final areaId in user.areaIds) {
+            final rows = _db.select(
+              'SELECT company_id FROM work_areas WHERE id = ?',
+              [areaId],
+            );
+            if (rows.isEmpty ||
+                !user.companyIds.contains(rows.first['company_id'])) {
+              throw ArgumentError(
+                'Todas las áreas deben pertenecer a una empresa asignada.',
+              );
+            }
+            _db.execute('INSERT INTO user_area_permissions VALUES (?, ?)', [
+              user.id,
+              areaId,
+            ]);
+          }
+        }
+      });
+    } on SqliteException catch (error) {
+      throw _friendlySqliteError(error, 'usuario');
+    }
     _changed();
   }
 
@@ -308,21 +326,25 @@ final class SqliteOrganizationRepository
     if (area == null || area.companyId != item.companyId) {
       throw ArgumentError('El área no pertenece a la empresa indicada.');
     }
-    _db.execute(
-      'INSERT INTO catalog_items(id, company_id, area_id, kind, name, active, created_at, updated_at) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, '
-      'active = excluded.active, updated_at = excluded.updated_at',
-      [
-        item.id,
-        item.companyId,
-        item.areaId,
-        item.kind.name,
-        name,
-        item.active ? 1 : 0,
-        _date(item.createdAt),
-        _date(item.updatedAt),
-      ],
-    );
+    try {
+      _db.execute(
+        'INSERT INTO catalog_items(id, company_id, area_id, kind, name, active, created_at, updated_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, '
+        'active = excluded.active, updated_at = excluded.updated_at',
+        [
+          item.id,
+          item.companyId,
+          item.areaId,
+          item.kind.name,
+          name,
+          item.active ? 1 : 0,
+          _date(item.createdAt),
+          _date(item.updatedAt),
+        ],
+      );
+    } on SqliteException catch (error) {
+      throw _friendlySqliteError(error, 'elemento de catálogo');
+    }
     _changed();
   }
 
@@ -440,7 +462,11 @@ final class SqliteOrganizationRepository
     return rows.isNotEmpty;
   }
 
-  void _validateUser(AppUser user, {required bool needsPassword}) {
+  void _validateUser(
+    AppUser user, {
+    required bool needsPassword,
+    AppUser? existingUser,
+  }) {
     if (user.username.trim().isEmpty || user.displayName.trim().isEmpty) {
       throw ArgumentError('Nombre y usuario son obligatorios.');
     }
@@ -462,9 +488,19 @@ final class SqliteOrganizationRepository
       if (companies.length != user.companyIds.length) {
         throw ArgumentError('Una de las empresas asignadas no existe.');
       }
+      final historicalCompanies = existingUser?.companyIds ?? const <String>{};
+      final inactiveNewCompanies = _db.select(
+        'SELECT id FROM companies WHERE active = 0 AND id IN (${List.filled(user.companyIds.length, '?').join(',')})',
+        user.companyIds.toList(),
+      );
+      if (inactiveNewCompanies.any(
+        (row) => !historicalCompanies.contains(row['id']),
+      )) {
+        throw ArgumentError('No puedes asignar una empresa deshabilitada.');
+      }
       if (user.areaAccessMode == AreaAccessMode.selected) {
         final areas = _db.select(
-          'SELECT id, company_id FROM work_areas WHERE id IN (${List.filled(user.areaIds.length, '?').join(',')})',
+          'SELECT id, company_id, active FROM work_areas WHERE id IN (${List.filled(user.areaIds.length, '?').join(',')})',
           user.areaIds.toList(),
         );
         if (areas.length != user.areaIds.length ||
@@ -481,8 +517,81 @@ final class SqliteOrganizationRepository
             'Selecciona al menos un área de cada empresa asignada.',
           );
         }
+        final historicalAreas = existingUser?.areaIds ?? const <String>{};
+        if (areas.any(
+          (row) => row['active'] == 0 && !historicalAreas.contains(row['id']),
+        )) {
+          throw ArgumentError('No puedes asignar un área deshabilitada.');
+        }
+      }
+      if (user.active && !_hasUsableContext(user)) {
+        throw ArgumentError(
+          'El usuario activo debe conservar al menos una empresa y área activas disponibles.',
+        );
       }
     }
+  }
+
+  bool _hasUsableContext(
+    AppUser user, {
+    String? disabledCompanyId,
+    String? disabledAreaId,
+  }) {
+    if (user.isSuperAdmin || !user.active) return true;
+    final companies = user.companyIds.where((id) => id != disabledCompanyId);
+    for (final companyId in companies) {
+      final companyRows = _db.select(
+        'SELECT active FROM companies WHERE id = ?',
+        [companyId],
+      );
+      if (companyRows.isEmpty || companyRows.first['active'] != 1) continue;
+      final areas = _db.select(
+        'SELECT id FROM work_areas WHERE company_id = ? AND active = 1',
+        [companyId],
+      );
+      if (user.areaAccessMode == AreaAccessMode.all && areas.isNotEmpty) {
+        return true;
+      }
+      if (user.areaAccessMode == AreaAccessMode.selected &&
+          areas.any(
+            (row) =>
+                row['id'] != disabledAreaId && user.areaIds.contains(row['id']),
+          )) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _ensureDeactivationKeepsUsableContexts({
+    String? companyId,
+    String? areaId,
+  }) {
+    final activeUsers = _db
+        .select(
+          "SELECT * FROM app_users WHERE privilege != 'superAdmin' AND active = 1",
+        )
+        .map(_userFromRow);
+    if (activeUsers.any(
+      (user) => !_hasUsableContext(
+        user,
+        disabledCompanyId: companyId,
+        disabledAreaId: areaId,
+      ),
+    )) {
+      throw StateError(
+        'No puedes desactivar este elemento porque dejaría a un usuario activo sin un contexto disponible.',
+      );
+    }
+  }
+
+  ArgumentError _friendlySqliteError(SqliteException error, String entity) {
+    if (error.message.toLowerCase().contains('unique')) {
+      return ArgumentError('Ya existe un $entity con ese nombre o usuario.');
+    }
+    return ArgumentError(
+      'No fue posible guardar el $entity. Inténtalo de nuevo.',
+    );
   }
 
   String? _passwordHash(String id) {
